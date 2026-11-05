@@ -1,5 +1,6 @@
 """
 Website Analyzer - Main analysis module
+FIXED VERSION - Addresses "analyzed" status not persisting bug
 """
 import httpx
 from bs4 import BeautifulSoup
@@ -57,7 +58,7 @@ class WebsiteAnalyzer:
         }
         
         try:
-            # Update status
+            # Update status to analyzing
             self.db.update_domain_status(domain.id, 'analyzing')
             
             # Get homepage
@@ -67,7 +68,12 @@ class WebsiteAnalyzer:
             
             if not homepage_soup:
                 result['errors'].append("Failed to fetch homepage")
-                self.db.update_domain_status(domain.id, 'analyzed')
+                
+                # ✅ FIX #1: Update domain object before saving
+                domain.status = 'analyzed'
+                domain.last_analyzed = datetime.now()
+                self.db.update_domain(domain)
+                
                 result['success'] = False
                 return result
             
@@ -101,7 +107,7 @@ class WebsiteAnalyzer:
                         contacts = self._extract_contact_methods(page_soup, url)
                         result['contact_methods'].extend(contacts)
             
-            # Save to database
+            # Save contact methods to database
             for contact in result['contact_methods']:
                 self.db.insert_contact_method(
                     domain_id=domain.id,
@@ -114,10 +120,8 @@ class WebsiteAnalyzer:
                     captcha_type=contact.get('captcha_type')
                 )
             
-            # Update domain status
-            self.db.update_domain_status(domain.id, 'analyzed')
-            
-            # Update last analyzed
+            # ✅ FIX #2: Update domain object with status AND timestamp, then save once
+            domain.status = 'analyzed'  # ← CRITICAL: Update object status BEFORE saving
             domain.last_analyzed = datetime.now()
             self.db.update_domain(domain)
             
@@ -133,7 +137,10 @@ class WebsiteAnalyzer:
         except Exception as e:
             analysis_logger.error(f"Analysis error for {domain.domain}: {e}")
             result['errors'].append(str(e))
-            self.db.update_domain_status(domain.id, 'error')
+            
+            # ✅ FIX #3: Update domain object status before saving
+            domain.status = 'error'
+            self.db.update_domain(domain)
             
             self.db.log_activity(
                 'analysis_error', 'analysis', domain.id,
