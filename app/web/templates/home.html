@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% block body %}
+<h2 style="margin-top:0">All projects</h2>
+<div class="card" style="margin-bottom:16px"><div class="row">
+<b>Connections:</b>
+{% for n,ok in configured.items() %}<span class="chip {{ 'win' if ok else 'warn' }}">{{ n }} {{ '✓' if ok else 'not set' }}</span>{% endfor %}
+<span class="chip {{ 'win' if ai else 'warn' }}">Claude {{ '✓' if ai else 'not set' }}</span>
+</div></div>
+
+<div class="card tbl" style="margin-bottom:16px">
+<table><tr><th>Project</th><th>Stage</th><th>Opportunities</th><th>Awaiting approval</th><th>Published</th><th>Live links</th><th>Open tasks</th><th></th></tr>
+{% for r in rows %}<tr>
+<td><a href="/p/{{r.p.id}}"><b>{{ r.p.name }}</b></a><br><small>{{ r.p.domain }}{% if r.p.client %} · {{ r.p.client }}{% endif %}</small></td>
+<td><span class="chip">{{ r.p.stage }}</span></td><td>{{ r.f.found }}</td><td>{{ r.f.awaiting_approval }}</td><td>{{ r.f.published }}</td><td>{{ r.f.live_links }}</td><td>{{ r.todo }}</td>
+<td>{% if r.p.needs_input %}<span class="chip warn">needs input</span>{% endif %}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">No projects yet.</td></tr>{% endfor %}
+</table></div>
+
+<div class="grid">
+<div class="card"><h3>New project</h3>
+<form method="post" action="/projects">
+<p><input name="name" placeholder="Brand name (T-Shirt Crisis)" required style="width:100%"></p>
+<p><input name="domain" placeholder="tshirtcrisis.com" required style="width:100%"></p>
+<p class="row"><select name="stage"><option value="launch">Launch (new site)</option><option value="growth">Growth (established)</option></select>
+<input name="client" placeholder="Client (optional)"></p>
+<p><input name="niche" placeholder="Niche (funny graphic tees, US)" style="width:100%"></p>
+<p><textarea name="competitors" rows="2" placeholder="Known competitors, comma separated (crazydogtshirts.com)"></textarea></p>
+<p><input name="seed_keywords" placeholder="Seed keywords: funny t-shirts, graphic tees" style="width:100%"></p>
+<button class="primary">Create</button></form></div>
+<div class="card"><h3>Recent activity</h3>
+{% for e in events %}<div><span class="chip {{ e.level }}">{{ e.level }}</span> <small>{{ names.get(e.project_id,'') }}</small> {{ e.message }}</div>{% else %}<p class="muted">Nothing yet.</p>{% endfor %}
+</div></div>
+{% endblock %}

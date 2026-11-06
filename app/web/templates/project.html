@@ -1,0 +1,44 @@
+{% extends "base.html" %}{% block body %}
+<div class="stats" style="margin-bottom:16px">
+<div class="stat"><b>{{ f.found }}</b><span>Opportunities found</span></div>
+<div class="stat"><b>{{ f.approved }}</b><span>Approved / in progress</span></div>
+<div class="stat"><b>{{ f.awaiting_approval }}</b><span>Awaiting your approval</span></div>
+<div class="stat"><b>{{ f.published }}</b><span>Published / sent</span></div>
+<div class="stat"><b>{{ f.live_links }}</b><span>Live links</span></div>
+</div>
+
+<div class="grid">
+<div class="card"><h3>Run</h3>
+<div class="row">
+<form method="post" action="/p/{{p.id}}/jobs/full_discovery" class="inline"><button class="primary">Full discovery</button></form>
+<form method="post" action="/p/{{p.id}}/jobs/discover_competitors" class="inline"><button>Find competitors</button></form>
+<form method="post" action="/p/{{p.id}}/jobs/pull_backlinks" class="inline"><button>Pull backlinks</button></form>
+<form method="post" action="/p/{{p.id}}/jobs/reclassify" class="inline"><button>Re-score</button></form>
+<form method="post" action="/p/{{p.id}}/jobs/build_brand_voice" class="inline"><button>Build brand voice</button></form>
+</div>
+<p><small>API units used: {{ '%.0f'|format(usage) }}</small></p>
+{% for j in jobs %}<div><small>{{ j.type }}</small> <span class="chip {{ 'win' if j.status=='done' else ('warn' if j.status=='failed' else '') }}">{{ j.status }}</span>{% if j.error %} <small title="{{ j.error }}">{{ j.error[:80] }}</small>{% endif %}</div>{% endfor %}
+</div>
+
+<div class="card"><h3>Playbooks</h3>
+{% for n,c in playbooks %}{% set pb = c() %}
+<form method="post" action="/p/{{p.id}}/playbooks/{{n}}" class="row" style="margin-bottom:8px">
+<button {{ 'class=primary' if pb.stage==p.stage }}>Apply</button><span><b>{{ pb.label }}</b><br><small>{{ pb.description }}</small></span></form>
+{% endfor %}</div>
+
+<div class="card"><h3>Strategies</h3>
+{% for n,c in strategies %}<div><span class="chip {{ 'win' if c.ready else '' }}">{{ 'live' if c.ready else 'planned' }}</span> <b>{{ c.label }}</b><br><small>{{ c.description }}</small></div>{% endfor %}
+</div>
+</div>
+
+<div class="grid" style="margin-top:16px">
+<div class="card tbl"><h3>Top opportunities <a href="/p/{{p.id}}/opportunities" style="font-weight:400">all →</a></h3>
+<table>{% for o in top %}<tr><td><span class="chip">{{ o.kind }}</span></td><td>{{ o.title[:70] }}</td><td><b>{{ o.score }}</b></td></tr>
+{% else %}<tr><td class="muted">Run discovery to find opportunities.</td></tr>{% endfor %}</table>
+<p>{% for k,v in by_kind.items() %}<span class="chip">{{ k }}: {{ v }}</span> {% endfor %}</p></div>
+<div class="card"><h3>Next tasks <a href="/p/{{p.id}}/tasks" style="font-weight:400">all →</a></h3>
+{% for t in tasks %}<div><span class="chip">D{{ t.day }} · {{ t.module }}</span> {{ t.title }} <small>({{ t.owner }})</small></div>{% else %}<p class="muted">Apply a playbook.</p>{% endfor %}</div>
+<div class="card"><h3>Activity</h3>
+{% for e in events %}<div><span class="chip {{ e.level }}">{{ e.level }}</span> {{ e.message }}</div>{% else %}<p class="muted">Nothing yet.</p>{% endfor %}</div>
+</div>
+{% endblock %}

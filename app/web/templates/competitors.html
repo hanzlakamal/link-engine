@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block body %}
+<div class="card tbl">
+<form method="post" action="/p/{{p.id}}/competitors" class="row" style="margin-bottom:12px"><input name="domain" placeholder="competitor.com" required><button class="primary">Add</button></form>
+<table><tr><th>Domain</th><th>Source</th><th>DR</th><th>Ref. domains</th><th>Traffic</th><th>Backlinks pulled</th><th>Tracked</th></tr>
+{% for c in p.competitors %}<tr><td><a href="https://{{c.domain}}" target="_blank" rel="noopener">{{ c.domain }}</a></td><td>{{ c.source }}</td>
+<td>{{ c.domain_rating if c.domain_rating is not none else '–' }}</td><td>{{ c.refdomains if c.refdomains is not none else '–' }}</td><td>{{ c.traffic if c.traffic is not none else '–' }}</td>
+<td>{{ c.backlinks_pulled_at.strftime('%b %d') if c.backlinks_pulled_at else '–' }}</td>
+<td><form method="post" action="/p/{{p.id}}/competitors/{{c.id}}/toggle" class="inline"><button>{{ 'Yes ✓' if c.confirmed else 'No' }}</button></form></td></tr>
+{% else %}<tr><td colspan="7" class="muted">None yet. Add one or run "Find competitors".</td></tr>{% endfor %}</table>
+</div>{% endblock %}

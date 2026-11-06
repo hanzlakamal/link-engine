@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block body %}
+{% for i in items %}
+<div class="card" style="margin-bottom:12px">
+<form method="post" action="/p/{{p.id}}/content/{{i.id}}">
+<div class="row"><span class="chip">{{ i.channel }}</span><span class="chip">{{ i.content_type }}</span><span class="chip {{ 'win' if i.status=='approved' }}">{{ i.status }}</span>
+{% if i.data.notes %}<small>Reviewer note: {{ i.data.notes }}</small>{% endif %}</div>
+<p><input name="title" value="{{ i.title }}" style="width:100%"></p>
+<p><textarea name="body" rows="10">{{ i.body }}</textarea></p>
+<div class="row">
+{% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">Approve</button>{% endif %}
+<button name="action" value="save">Save edits</button><button name="action" value="reject">Reject</button>
+{% if compose[i.id] %}<a class="btn" href="{{ compose[i.id] }}" target="_blank" rel="noopener" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('form').body.value)">Copy &amp; open {{ i.channel }}</a>{% endif %}
+<input name="published_url" placeholder="Paste live URL after posting"><button name="action" value="published">Mark published</button>
+</div></form></div>
+{% else %}<div class="card muted">Nothing waiting. Click "Draft" on an opportunity to have Claude write it.</div>{% endfor %}
+{% endblock %}

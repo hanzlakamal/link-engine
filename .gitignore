@@ -25,3 +25,7 @@ screenshots/
 Thumbs.db
 .vscode/
 .idea/
+
+# local env
+.env
+!.env.example

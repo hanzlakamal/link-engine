@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block body %}
+{% set ns = namespace(pb='') %}
+<div class="card tbl"><table>
+{% for t in tasks %}
+{% if t.playbook != ns.pb %}{% set ns.pb = t.playbook %}<tr><th colspan="5" style="padding-top:16px;font-size:13px;color:var(--ink)">{{ t.playbook }}</th></tr>{% endif %}
+<tr style="{{ 'opacity:.5' if t.status in ('done','skipped') }}">
+<td><span class="chip">Day {{ t.day }}</span></td><td><span class="chip">{{ t.module }}</span><br><small>{{ t.owner }}</small></td>
+<td><b>{{ t.title }}</b><br><small>{{ t.detail }}</small></td>
+<td style="white-space:nowrap"><form method="post" action="/p/{{p.id}}/tasks/{{t.id}}" class="inline">
+<select name="status" onchange="this.form.submit()">{% for s in ['todo','doing','done','skipped'] %}<option {{ 'selected' if s==t.status }}>{{ s }}</option>{% endfor %}</select></form></td></tr>
+{% else %}<tr><td class="muted">No tasks. Apply a playbook from the Overview tab.</td></tr>{% endfor %}
+</table></div>{% endblock %}
