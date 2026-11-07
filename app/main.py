@@ -606,9 +606,15 @@ def api_opps(pid: int, kind: str = "", db: Session = Depends(get_db)):
 @app.get("/account", response_class=HTMLResponse)
 def account_page(request: Request, need2fa: int = 0, msg: str = "", setup: str = ""):
     u = me(request)
-    uri = authz.otpauth_uri(setup, u.email, get_settings().app_name) if setup else ""
+    uri = qr = grouped = ""
+    if setup and re.fullmatch(r"[A-Z2-7]{16,64}", setup):
+        import segno
+
+        uri = authz.otpauth_uri(setup, u.email, get_settings().app_name)
+        qr = segno.make(uri, error="m").svg_inline(scale=5, dark="#000", light="#fff")
+        grouped = " ".join(setup[i:i + 4] for i in range(0, len(setup), 4))
     return templates.TemplateResponse(request, "account.html", {
-        "u": u, "need2fa": need2fa, "msg": msg, "setup": setup, "uri": uri})
+        "u": u, "need2fa": need2fa, "msg": msg, "setup": setup, "uri": uri, "qr": qr, "grouped": grouped})
 
 
 @app.post("/account")

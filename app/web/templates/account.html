@@ -13,9 +13,10 @@
 <form method="post" action="/account"><input type="hidden" name="action" value="2fa_disable">
 <p><input type="password" name="current" placeholder="Current password" required style="width:100%"></p><button>Turn off</button></form>
 {% elif setup %}
-<p>1. In Google Authenticator / 1Password / Authy choose <b>Enter a setup key</b>:</p>
-<p><code style="font-size:15px;word-break:break-all">{{ setup }}</code></p>
-<p><small>Or open on your phone: <a href="{{ uri }}">{{ uri[:60] }}…</a></small></p>
+<p>1. In Google Authenticator tap <b>+</b> &rarr; <b>Scan a QR code</b>:</p>
+<div style="background:#fff;display:inline-block;padding:8px;border-radius:8px">{{ qr|safe }}</div>
+<p><small>Can't scan? Choose <b>Enter a setup key</b>, key type <b>Time based</b>, and type (spaces are fine; only letters A–Z and digits 2–7, never 0, 1 or 8):</small><br>
+<code style="font-size:16px;letter-spacing:1px">{{ grouped }}</code></p>
 <form method="post" action="/account"><input type="hidden" name="action" value="2fa_enable"><input type="hidden" name="secret" value="{{ setup }}">
 <p><input name="code" inputmode="numeric" placeholder="2. Enter the 6-digit code" required style="width:100%"></p>
 <p><input type="password" name="current" placeholder="Current password" required style="width:100%"></p><button class="primary">Turn on</button></form>
