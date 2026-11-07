@@ -66,9 +66,12 @@ paste the live URL &rarr; it moves to <i>Published</i> and the link is scored in
   {% if el.audit and el.audit.internal %} · <span style="color:var(--warn)">own site (not a backlink)</span>{% endif %}</small>
   <a class="btn" href="/p/{{ p.id }}/links?search={{ el.source_url|urlencode }}">Details</a></p>
   {% else %}
-  <p class="row"><input name="published_url" placeholder="{{ 'Editor published it? Paste the article URL' if is_mail else 'Paste the live URL' }}" style="flex:1"><button name="action" value="published">Add live link</button></p>
+  {% if i.channel == 'own_blog' %}<p><small class="muted">Article on your own blog (the hub). It supports your site but isn't a backlink, so it isn't scored.</small></p>
+  {% else %}<p class="row"><input name="published_url" placeholder="{{ 'Editor published it? Paste the article URL' if is_mail else 'No link recorded yet: paste the live URL' }}" style="flex:1"><button name="action" value="published">Add live link</button></p>{% endif %}
   {% endfor %}
-  <details><summary><small>Show text</small></summary><pre style="white-space:pre-wrap">{{ i.body }}</pre></details>
+  <div class="row"><details><summary><small>Show text</small></summary><pre style="white-space:pre-wrap">{{ i.body }}</pre></details>
+  <span style="flex:1"></span>
+  {% if not is_mail and i.channel != 'own_blog' %}<button name="action" value="restore" title="Wrongly marked published? Send it back to To approve">Undo publish</button>{% endif %}</div>
 
 {% elif view == 'rejected' %}
   <p><b>{{ i.title }}</b></p>
