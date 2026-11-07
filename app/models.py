@@ -86,6 +86,7 @@ class Backlink(TimestampMixin, Base):
     # classification (app/classify.py)
     platform: Mapped[str] = mapped_column(String(80), default="")
     category: Mapped[str] = mapped_column(String(40), default="")  # blog_platform, qa, social, ...
+    subtype: Mapped[str] = mapped_column(String(40), default="")  # gift_guide, review_giveaway, charity, ...
     acquisition: Mapped[str] = mapped_column(String(30), default="")  # self_publish | outreach | pr | skip
     provider: Mapped[str] = mapped_column(String(30), default="")
 

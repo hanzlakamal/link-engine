@@ -194,3 +194,39 @@ def test_web_flow():
         for path in ("", "/opportunities", "/queue", "/tasks", "/competitors", "/settings"):
             assert c.get(f"/p/{pid}{path}").status_code == 200, path
         assert "Gift-guide PR sprint" in c.get(f"/p/{pid}/tasks").text
+
+
+def test_csv_import_and_new_kinds():
+    csv_text = "\n".join([
+        "url_from,domain_rating_source,traffic_domain,is_dofollow",
+        "https://www.inksoft.com/customer-success-story-x/,83,4503,1",
+        "https://www.sippycupmom.com/x-t-shirt-giveaway/,55,416,1",
+        "https://blog.giftya.com/article/gift-ideas-for-teens,48,20209,1",
+        "https://www.gofundme.com/f/team-x,92,1491124,1",
+        "https://www.wethrift.com/codes/x.com,73,279675,0",
+        "https://forum.example.pl/topic/123,60,5000,0",
+        "https://x.myshopify.com/,95,1,1",
+    ])
+    with session_scope() as s:
+        p = Project(name="T", domain="t.com", stage="launch")
+        s.add(p)
+        s.flush()
+        assert pipeline.import_backlinks_csv(s, p, csv_text, "x.com")["imported"] == 7
+        s.flush()
+        pipeline.build_opportunities(s, p)
+        s.flush()
+        kinds = {o.key: o.kind for o in s.scalars(select(Opportunity))}
+        assert kinds["inksoft.com"] == "vendor_case_study"
+        assert kinds["sippycupmom.com"] == "blogger_review"
+        assert kinds["giftya.com"] == "gift_guide"
+        assert kinds["gofundme.com"] == "charity"
+        assert kinds["wethrift"] == "self_publish"
+        assert not any("example.pl" in k or "shopify" in k for k in kinds)
+
+
+def test_marketplaces_are_not_competitors():
+    from app.pipeline import is_platform_not_competitor
+
+    cfg = merged_settings({})
+    assert is_platform_not_competitor("amazon.com", cfg) and is_platform_not_competitor("etsy.com", cfg)
+    assert not is_platform_not_competitor("threadheads.com", cfg)

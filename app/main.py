@@ -13,12 +13,13 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import pipeline
 from app.channels import get_channel
 from app.classify import domain_of
 from app.config import DEFAULTS, get_settings, merged_settings
@@ -185,6 +186,23 @@ def toggle_competitor(pid: int, cid: int, db: Session = Depends(get_db)):
 def competitors_page(pid: int, request: Request, db: Session = Depends(get_db)):
     p = _project(db, pid)
     return templates.TemplateResponse(request, "competitors.html", {"p": p, "tab": "competitors"})
+
+
+@app.post("/p/{pid}/import")
+async def import_csv(pid: int, file: UploadFile = File(...), competitor: str = Form(""), db: Session = Depends(get_db)):
+    """Upload an Ahrefs/DataForSEO backlink export. Leave competitor empty for links to our own site."""
+    p = _project(db, pid)
+    text = (await file.read()).decode("utf-8", errors="replace")
+    pipeline.import_backlinks_csv(db, p, text, competitor.strip() or None, source="csv")
+    db.flush()
+    pipeline.build_opportunities(db, p)
+    db.commit()
+    return _back(pid, "opportunities")
+
+
+@app.get("/p/{pid}/disavow.txt", response_class=PlainTextResponse)
+def disavow(pid: int, db: Session = Depends(get_db)):
+    return pipeline.disavow_file(db, _project(db, pid))
 
 
 @app.post("/p/{pid}/jobs/{jtype}")

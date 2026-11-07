@@ -54,6 +54,7 @@ DEFAULTS: dict = {
         # A competitor "has enough data" if it clears these; otherwise we ask the user for one.
         "min_competitor_refdomains": 50,
         "seed_keywords": [],
+        "never_competitors": [],  # extra domains never treated as competitors
     },
     "quality": {
         "min_dr": 10,
@@ -62,6 +63,8 @@ DEFAULTS: dict = {
         "spam_tokens": ["casino", "betting", "cbd", "viagra", "loan", "porn", "escort", "essay"],
         "relevance_terms": ["shirt", "tee", "apparel", "gift", "funny", "graphic", "fashion", "clothing", "merch"],
         "blocklist": [],
+        # Country TLDs outside the target market (US default). Set [] for international brands.
+        "exclude_tlds": ["ru", "pl", "no", "dk", "nl", "de", "fr", "es", "it", "il", "id", "my", "ua", "br", "cz", "lk", "mk"],
         "weights": {"dr": 0.30, "traffic": 0.15, "overlap": 0.25, "relevance": 0.20, "dofollow": 0.10},
     },
     "automation": {

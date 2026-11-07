@@ -43,11 +43,14 @@ def classify(source_url: str, title: str = "", page_type: str = "", is_spam: boo
             return Classification("", "spam", "skip", reason=f"spam token '{tok}' in domain")
     if host in set(quality.get("blocklist", [])) or root_domain(host) in set(quality.get("blocklist", [])):
         return Classification("", "blocked", "skip", reason="blocklisted")
+    tld = host.rsplit(".", 1)[-1]
+    if tld in set(quality.get("exclude_tlds", [])):
+        return Classification("", "off_market", "skip", reason=f".{tld} site outside target market")
 
     hit = lookup(host, catalog_extra)
     if hit:
         _, plat = hit
-        return Classification(plat.name, plat.category, plat.acquisition, reason=plat.notes)
+        return Classification(plat.name, plat.category, plat.acquisition, plat.category, plat.notes)
 
     subtype = ""
     for needle, st in EDITORIAL_HINTS:
@@ -63,6 +66,8 @@ def classify(source_url: str, title: str = "", page_type: str = "", is_spam: boo
         return Classification(root_domain(host), "forum", "self_publish", subtype, "niche forum: participate, link in profile/signature")
     if subtype == "deals":
         return Classification(root_domain(host), "deals", "self_publish", subtype, "coupon/deal site: submit brand + real offers")
+    if subtype == "affiliate":
+        return Classification(root_domain(host), "affiliate", "self_publish", subtype, "affiliate directory: list our program")
     return Classification(root_domain(host), "editorial", "outreach", subtype or "article", "")
 
 

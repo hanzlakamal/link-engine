@@ -101,22 +101,86 @@ CATALOG: dict[str, Platform] = {
     "nytimes.com": P("NYTimes", "news", acquisition="pr"),
     "bustle.com": P("Bustle", "news", acquisition="pr", link="dofollow"),
     "boredpanda.com": P("Bored Panda", "news", acquisition="pr", notes="Loves funny-design roundups; pitch or submit a post."),
+    "huffingtonpost.co.uk": P("HuffPost UK", "news", acquisition="pr", link="dofollow"),
+    "huffpost.com": P("HuffPost", "news", acquisition="pr", link="dofollow"),
+    "timeout.com": P("Time Out", "news", acquisition="pr", link="dofollow", notes="Seasonal 'best shirts' roundups."),
+    "tasteofhome.com": P("Taste of Home", "news", acquisition="pr", notes="Gift collections."),
+    "scarymommy.com": P("Scary Mommy", "news", acquisition="pr", link="dofollow"),
+    "romper.com": P("Romper", "news", acquisition="pr", link="dofollow"),
+    "cafemom.com": P("CafeMom", "news", acquisition="pr", link="dofollow"),
+    "trendhunter.com": P("Trend Hunter", "news", acquisition="pr", notes="Accepts product submissions for quirky designs."),
+    "thisiswhyimbroke.com": P("This Is Why I'm Broke", "news", acquisition="pr", notes="Submit funny/novel products."),
+    "prweb.com": P("PRWeb", "press_release", content_types=("press_release",), notes="Paid wire; only for real news."),
+    # --- coupon / deal sites (submit brand + real offers) -------------------------------
+    "dontpayfull.com": P("DontPayFull", "deals", content_types=("store_listing",)),
+    "wethrift.com": P("Wethrift", "deals", content_types=("store_listing",)),
+    "givingassistant.org": P("Giving Assistant", "deals", link="dofollow", content_types=("store_listing",)),
+    "dealdrop.com": P("DealDrop", "deals", content_types=("store_listing",)),
+    "deal.town": P("Deal.town", "deals", content_types=("deal_post",)),
+    "shipthedeal.com": P("ShipTheDeal", "deals", content_types=("store_listing",)),
+    "pennycanny.com": P("PennyCanny", "deals", content_types=("store_listing",)),
+    "couponmate.com": P("CouponMate", "deals", content_types=("store_listing",)),
+    "topvoucherscode.co.uk": P("TopVouchersCode", "deals", link="dofollow", content_types=("store_listing",)),
+    "milled.com": P("Milled", "deals", content_types=("newsletter_archive",), notes="Auto-indexes brand newsletters: just send emails."),
+    # --- affiliate networks (join -> merchant listing link) -----------------------------
+    "awin.com": P("Awin", "affiliate", link="dofollow", content_types=("merchant_profile",)),
+    "flexoffers.com": P("FlexOffers", "affiliate", link="dofollow", content_types=("merchant_profile",)),
+    "uppromote.com": P("UpPromote", "affiliate", content_types=("program_listing",), notes="Shopify affiliate app; listing in their marketplace."),
+    "takeads.com": P("Takeads", "affiliate", content_types=("merchant_profile",)),
+    "linkbux.com": P("LinkBux", "affiliate", content_types=("merchant_profile",)),
+    "izea.com": P("IZEA", "affiliate", content_types=("creator_marketplace",)),
+    # --- business data / review profiles (claim) ----------------------------------------
+    "birdeye.com": P("Birdeye", "reviews", link="dofollow", content_types=("profile",)),
+    "resellerratings.com": P("ResellerRatings", "reviews", link="dofollow", content_types=("profile",)),
+    "trustprofile.com": P("TrustProfile", "reviews", link="dofollow", content_types=("profile",)),
+    "brandfetch.com": P("Brandfetch", "directory", content_types=("brand_kit",)),
+    "owler.com": P("Owler", "directory", content_types=("profile",)),
+    "cience.com": P("Cience", "directory", content_types=("profile",)),
+    "allbiz.com": P("Allbiz", "directory", content_types=("profile",)),
+    "17track.net": P("17TRACK", "directory", acquisition="skip", notes="Auto-generated from shipping data."),
+    "core77.com": P("Core77", "visual", content_types=("profile",)),
+    "catchmyparty.com": P("Catch My Party", "marketplace", link="dofollow", content_types=("vendor_listing",)),
+    # --- charity / fundraisers ----------------------------------------------------------
+    "gofundme.com": P("GoFundMe", "charity", acquisition="outreach", link="dofollow", notes="Donate shirts/merch to campaigns; organisers credit sponsors."),
+    "qgiv.com": P("Qgiv", "charity", acquisition="outreach", link="dofollow", notes="Charity event sponsor pages."),
     # --- obvious skips ----------------------------------------------------------------
+    "myshopify.com": P("Shopify store URL", "infra", acquisition="skip"),
+    "webflow.io": P("Webflow parasite", "infra", acquisition="skip", notes="Usually third-party coupon parasite pages."),
+    "intercom.help": P("Intercom parasite", "infra", acquisition="skip"),
+    "scamadviser.com": P("ScamAdviser", "infra", acquisition="skip", notes="Auto-generated."),
+    "scam-detector.com": P("Scam Detector", "infra", acquisition="skip", notes="Auto-generated."),
     "google.com": P("Google", "infra", acquisition="skip"),
     "wikipedia.org": P("Wikipedia", "wiki", acquisition="skip", notes="Do not spam Wikipedia."),
     "archive.org": P("Archive", "infra", acquisition="skip"),
 }
 
 # URL path/title hints for editorial pages on unknown domains -> opportunity sub-type.
+# First match wins, so specific patterns come first.
 EDITORIAL_HINTS: list[tuple[str, str]] = [
+    ("write-for-us", "guest_post_sales"), ("sponsored-post", "guest_post_sales"), ("guest-post", "guest_post_sales"),
+    ("giveaway", "review_giveaway"), ("give-away", "review_giveaway"),
+    ("case-stud", "vendor_case_study"), ("customer-success", "vendor_case_study"), ("testimonial", "vendor_case_study"),
+    ("fundraiser", "charity"), ("donat", "charity"),
+    ("affiliate-program", "affiliate"),
+    ("coupon", "deals"), ("promo-code", "deals"), ("discount-code", "deals"), ("/codes/", "deals"), ("/deals/", "deals"),
     ("gift-guide", "gift_guide"), ("gift guide", "gift_guide"), ("gifts-for", "gift_guide"), ("gifts for", "gift_guide"),
-    ("best-", "listicle"), ("top-", "listicle"), ("best ", "listicle"),
-    ("resources", "resource_page"), ("links", "resource_page"),
-    ("review", "review"), ("coupon", "deals"), ("promo-code", "deals"),
-    ("forum", "forum"), ("/threads/", "forum"), ("/community", "forum"), ("/t/", "forum"),
+    ("gift-ideas", "gift_guide"), ("-gifts", "gift_guide"), ("gifts-", "gift_guide"),
+    ("review", "review_giveaway"),
+    ("forum", "forum"), ("/threads/", "forum"), ("/discussion/", "forum"), ("/topic/", "forum"), ("/t/", "forum"),
+    ("best-", "listicle"), ("top-", "listicle"), ("-shirts", "listicle"), ("t-shirts", "listicle"),
+    ("resources", "resource_page"),
     ("podcast", "podcast"), ("interview", "interview"),
-    ("write-for-us", "guest_post_sales"), ("sponsored", "guest_post_sales"), ("guest-post", "guest_post_sales"),
 ]
+
+# Editorial subtype -> Opportunity.kind (anything else becomes "link_gap").
+SUBTYPE_KIND = {
+    "gift_guide": "gift_guide",
+    "review_giveaway": "blogger_review",
+    "vendor_case_study": "vendor_case_study",
+    "charity": "charity",
+    "listicle": "roundup",
+    "podcast": "podcast",
+}
 
 
 def lookup(domain: str, extra: dict[str, dict] | None = None) -> tuple[str, Platform] | None:

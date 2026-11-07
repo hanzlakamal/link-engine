@@ -6,7 +6,7 @@ from collections import defaultdict
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.catalog import lookup
+from app.catalog import SUBTYPE_KIND, lookup
 from app.classify import relevance, score
 from app.models import Backlink, Competitor, Project
 from app.registry import strategies
@@ -79,7 +79,7 @@ class LinkGap(Strategy):
         ours = set(s.scalars(select(Backlink.source_domain).where(
             Backlink.project_id == project.id, Backlink.competitor_id.is_(None))).all())
         rows = s.scalars(select(Backlink).where(
-            Backlink.project_id == project.id, Backlink.acquisition == "outreach")).all()
+            Backlink.project_id == project.id, Backlink.acquisition.in_(("outreach", "pr")))).all()
         groups: dict[str, list[Backlink]] = defaultdict(list)
         for b in rows:
             if b.competitor_id is not None and b.source_domain not in ours:
@@ -94,12 +94,17 @@ class LinkGap(Strategy):
             sc = score(dr=best.domain_rating, traffic=best.traffic, competitors_count=len(comps),
                        total_competitors=total, rel=rel, dofollow_share=sum(b.dofollow for b in links) / len(links),
                        weights=q["weights"])
-            kind = "gift_guide" if any("gift" in (b.source_url + b.title).lower() for b in links) else "link_gap"
+            if best.acquisition == "pr":
+                kind = "pr_target"
+            else:
+                kinds = [SUBTYPE_KIND.get(b.subtype, "") for b in links]
+                kind = next((k for k in kinds if k), "link_gap")
             self.upsert(
                 s, project.id, kind, dom,
                 title=best.title or dom, domain=dom, url=best.source_url, score=sc, competitors_count=len(comps),
                 reason=f"links to {len(comps)}/{total} competitors",
-                data={"examples": [b.source_url for b in links[:5]], "dr": best.domain_rating, "traffic": best.traffic},
+                data={"examples": [b.source_url for b in links[:5]], "dr": best.domain_rating, "traffic": best.traffic,
+                      "subtype": best.subtype, "dofollow": best.dofollow},
             )
             n += 1
         return n

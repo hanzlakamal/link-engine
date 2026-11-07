@@ -9,7 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import providers as prov
-from app.classify import classify, domain_of
+import csv
+import io
+
+from app.catalog import lookup
+from app.classify import classify, domain_of, root_domain
 from app.config import merged_settings
 from app.models import ApiUsage, Backlink, Competitor, Event, Project, utcnow
 from app.registry import strategies
@@ -33,6 +37,13 @@ def event(s: Session, project_id: int | None, message: str, level: str = "info",
     s.add(Event(project_id=project_id, level=level, message=message, data=data))
 
 
+def is_platform_not_competitor(domain: str, cfg: dict) -> bool:
+    """Marketplaces/social/news show up as organic competitors but are channels, not rivals."""
+    if domain in set(cfg["discovery"].get("never_competitors", [])):
+        return True
+    return lookup(domain, cfg.get("catalog_extra")) is not None
+
+
 def discover_competitors(s: Session, project: Project) -> dict:
     """Auto-discover competitors. If none have enough data (new sites), ask the user for one."""
     cfg = merged_settings(project.settings)
@@ -47,7 +58,11 @@ def discover_competitors(s: Session, project: Project) -> dict:
         event(s, project.id, f"Competitor discovery failed: {e}", "warn")
 
     existing = {c.domain for c in project.competitors}
+    skipped = []
     for c in found:
+        if is_platform_not_competitor(c.domain, cfg):
+            skipped.append(c.domain)  # Amazon, Etsy, Pinterest... are channels, not competitors
+            continue
         if c.domain not in existing and c.domain != project.domain:
             s.add(Competitor(project_id=project.id, domain=c.domain, source=p.name,
                              domain_rating=c.domain_rating, traffic=c.traffic,
@@ -115,7 +130,7 @@ def pull_backlinks(s: Session, project: Project, competitor_id: int | None = Non
                 source_domain=rb.source_domain or domain_of(rb.source_url), target_url=rb.target_url,
                 anchor=rb.anchor, title=rb.title, dofollow=rb.dofollow, domain_rating=rb.domain_rating,
                 traffic=rb.traffic, page_type=rb.page_type, is_spam=rb.is_spam, first_seen=rb.first_seen,
-                platform=c.platform, category=c.category, acquisition=c.acquisition, provider=p.name,
+                platform=c.platform, category=c.category, subtype=c.subtype, acquisition=c.acquisition, provider=p.name,
             ))
             total += 1
         if comp_id:
@@ -131,7 +146,7 @@ def reclassify(s: Session, project: Project) -> int:
     n = 0
     for b in s.scalars(select(Backlink).where(Backlink.project_id == project.id)):
         c = classify(b.source_url, b.title, b.page_type, b.is_spam, cfg["quality"], cfg.get("catalog_extra"))
-        b.platform, b.category, b.acquisition = c.platform, c.category, c.acquisition
+        b.platform, b.category, b.subtype, b.acquisition = c.platform, c.category, c.subtype, c.acquisition
         n += 1
     return n
 
@@ -151,3 +166,68 @@ def build_opportunities(s: Session, project: Project) -> dict:
         out[name] = strat.run(s, project, cfg)
     event(s, project.id, "Opportunities refreshed: " + ", ".join(f"{k}={v}" for k, v in out.items()), "win")
     return out
+
+
+def import_backlinks_csv(s: Session, project: Project, text: str, competitor_domain: str | None,
+                         source: str = "csv") -> dict:
+    """Import an Ahrefs / DataForSEO / generic CSV export.
+
+    Recognised columns (any subset): url_from | Referring page URL | source_url, domain_rating_source | DR |
+    Domain rating, traffic_domain | Domain traffic, is_dofollow | Nofollow, anchor, title, is_spam.
+    competitor_domain=None imports links pointing at OUR site.
+    """
+    cfg = merged_settings(project.settings)
+    comp_id = None
+    if competitor_domain:
+        d = domain_of(competitor_domain)
+        comp = s.scalar(select(Competitor).where(Competitor.project_id == project.id, Competitor.domain == d))
+        if comp is None:
+            comp = Competitor(project_id=project.id, domain=d, source=source, confirmed=True)
+            s.add(comp)
+            s.flush()
+        comp_id = comp.id
+        comp.backlinks_pulled_at = utcnow()
+
+    def col(row, *names, default=""):
+        low = {(k or "").strip().lower(): v for k, v in row.items()}
+        for n in names:
+            v = low.get(n.lower())
+            if v not in (None, ""):
+                return v
+        return default
+
+    def truthy(v):
+        return str(v).strip().lower() in ("1", "true", "yes", "dofollow")
+
+    seen = {b.source_url for b in s.scalars(select(Backlink).where(
+        Backlink.project_id == project.id,
+        Backlink.competitor_id.is_(None) if comp_id is None else Backlink.competitor_id == comp_id))}
+    n = 0
+    for row in csv.DictReader(io.StringIO(text.lstrip("\ufeff"))):
+        url = col(row, "url_from", "Referring page URL", "source_url", "url")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        nofollow = col(row, "Nofollow", default=None)
+        dofollow = truthy(col(row, "is_dofollow", "dofollow", default="1")) if nofollow is None else not truthy(nofollow)
+        dr = float(col(row, "domain_rating_source", "DR", "Domain rating", default="0") or 0)
+        traffic = int(float(col(row, "traffic_domain", "Domain traffic", default="0") or 0))
+        title = col(row, "title", "Referring page title")
+        spam = truthy(col(row, "is_spam", default="0"))
+        c = classify(url, title, "", spam, cfg["quality"], cfg.get("catalog_extra"))
+        s.add(Backlink(project_id=project.id, competitor_id=comp_id, source_url=url,
+                       source_domain=root_domain(domain_of(url)), anchor=col(row, "anchor", "Anchor"), title=title,
+                       dofollow=dofollow, domain_rating=dr, traffic=traffic, is_spam=spam, platform=c.platform,
+                       category=c.category, subtype=c.subtype, acquisition=c.acquisition, provider=source))
+        n += 1
+    event(s, project.id, f"Imported {n} backlinks for {competitor_domain or project.domain} from {source}.")
+    return {"imported": n}
+
+
+def disavow_file(s: Session, project: Project) -> str:
+    """Google disavow file for spam links pointing at OUR domain. Upload only if they ever cause a problem."""
+    doms = sorted({b.source_domain for b in s.scalars(select(Backlink).where(
+        Backlink.project_id == project.id, Backlink.competitor_id.is_(None), Backlink.is_spam.is_(True)))})
+    head = (f"# Disavow file for {project.domain} generated by Link Engine on {utcnow():%Y-%m-%d}\n"
+            "# Google ignores most spam automatically; upload only after a manual action or clear ranking hit.\n")
+    return head + "\n".join(f"domain:{d}" for d in doms) + ("\n" if doms else "")

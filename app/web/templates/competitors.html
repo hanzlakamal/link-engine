@@ -7,4 +7,9 @@
 <td>{{ c.backlinks_pulled_at.strftime('%b %d') if c.backlinks_pulled_at else '–' }}</td>
 <td><form method="post" action="/p/{{p.id}}/competitors/{{c.id}}/toggle" class="inline"><button>{{ 'Yes ✓' if c.confirmed else 'No' }}</button></form></td></tr>
 {% else %}<tr><td colspan="7" class="muted">None yet. Add one or run "Find competitors".</td></tr>{% endfor %}</table>
-</div>{% endblock %}
+</div>
+<div class="card" style="margin-top:16px"><h3>Import backlinks CSV</h3>
+<small>Ahrefs Backlinks export or DataForSEO CSV. Leave competitor empty to import links pointing at {{ p.domain }}.</small>
+<form method="post" action="/p/{{p.id}}/import" enctype="multipart/form-data" class="row" style="margin-top:8px">
+<input type="file" name="file" accept=".csv" required><input name="competitor" placeholder="competitor.com (optional)"><button class="primary">Import</button></form>
+<p><a href="/p/{{p.id}}/disavow.txt">Download disavow file (spam links to our site)</a></p></div>{% endblock %}
