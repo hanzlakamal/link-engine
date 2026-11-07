@@ -432,9 +432,10 @@ def _recipients(db: Session, items) -> dict:
 
     out = {}
     for i in items:
-        if i.channel in ("outreach_email", "email") and i.opportunity_id:
-            cs = db.scalars(select(Contact).where(Contact.opportunity_id == i.opportunity_id,
-                                                  Contact.status.notin_(("unsubscribed", "bounced")))).all()
+        if i.channel in ("outreach_email", "email") and (i.opportunity_id or i.contact_id):
+            cs = db.scalars(select(Contact).where(
+                Contact.project_id == i.project_id, Contact.status.notin_(("unsubscribed", "bounced")),
+                (Contact.opportunity_id == (i.opportunity_id or -1)) | (Contact.id == (i.contact_id or -1)))).all()
             out[i.id] = [(c, is_generic(c.email)) for c in sorted(cs, key=lambda c: (is_generic(c.email), c.id))]
     return out
 
