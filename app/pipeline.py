@@ -179,6 +179,15 @@ def reclassify(s: Session, project: Project) -> int:
 def build_opportunities(s: Session, project: Project) -> dict:
     cfg = project_cfg(project)
     enabled = cfg.get("strategies")  # explicit list overrides stage defaults
+    # Rebuild untouched opportunities from scratch so re-scoring drops ones that no longer qualify.
+    # Anything a person has acted on (status changed or assigned) is kept.
+    from sqlalchemy import delete
+
+    from app.models import Opportunity
+    s.execute(delete(Opportunity).where(
+        Opportunity.project_id == project.id, Opportunity.status == "new", Opportunity.assigned_to.is_(None),
+        Opportunity.kind.in_(("self_publish", "link_gap", "gift_guide", "roundup", "blogger_review",
+                              "vendor_case_study", "charity", "pr_target", "podcast"))))
     out = {}
     for name, cls in strategies.items():
         strat = cls()
