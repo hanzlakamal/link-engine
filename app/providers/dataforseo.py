@@ -54,11 +54,11 @@ class DataForSEOProvider(BacklinkProvider):
         rank = r.get("rank")
         return DomainMetrics(domain, (rank / 10) if rank is not None else None, r.get("referring_domains"), None, None)
 
-    def backlinks(self, domain, limit=1000):
+    def backlinks(self, domain, limit=300, min_dr=0, include_traffic=False):
         res = self._post("/backlinks/backlinks/live", {
             "target": domain, "mode": "one_per_domain", "limit": min(limit, 1000),
             "include_subdomains": True, "order_by": ["domain_from_rank,desc"],
-            "filters": ["is_lost", "=", False],
+            "filters": [["is_lost", "=", False], "and", ["domain_from_rank", ">=", int(min_dr * 10)]],
         })
         items = (res[0].get("items") if res else None) or []
         return [

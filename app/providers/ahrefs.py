@@ -1,6 +1,7 @@
 """Ahrefs API v3. Field names verified against the v3 OpenAPI schema (2026-11)."""
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 
 import httpx
@@ -61,14 +62,17 @@ class AhrefsProvider(BacklinkProvider):
             keywords=m.get("org_keywords"),
         )
 
-    def backlinks(self, domain, limit=1000):
+    def backlinks(self, domain, limit=300, min_dr=0, include_traffic=False):
+        # Cost = rows x columns. Keep columns lean; traffic_domain alone is 10 units/row.
+        cols = ["url_from", "url_to", "anchor", "title", "is_dofollow", "domain_rating_source", "root_name_source"]
+        if include_traffic:
+            cols.append("traffic_domain")
+        where = {"and": [{"field": "is_spam", "is": ["eq", False]},
+                         {"field": "domain_rating_source", "is": ["gte", min_dr]}]}
         data = self._get("/site-explorer/all-backlinks", {
             "target": domain, "mode": "subdomains", "history": "live", "aggregation": "1_per_domain",
-            "limit": limit, "order_by": "domain_rating_source:desc",
-            "select": ",".join([
-                "url_from", "url_to", "anchor", "title", "is_dofollow", "domain_rating_source",
-                "traffic_domain", "root_name_source", "page_type_source", "is_spam", "first_seen_link",
-            ]),
+            "limit": limit, "order_by": "domain_rating_source:desc", "select": ",".join(cols),
+            "where": json.dumps(where),
         })
         out = []
         for b in data.get("backlinks", []):

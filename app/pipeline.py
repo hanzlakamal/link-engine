@@ -5,7 +5,9 @@ re-run safely, scheduled, or triggered from the UI.
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import timedelta, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import providers as prov
@@ -23,6 +25,15 @@ def _usage_cb(s: Session, project_id: int | None):
     def cb(provider: str, endpoint: str, units: float):
         s.add(ApiUsage(project_id=project_id, provider=provider, endpoint=endpoint, units=units))
     return cb
+
+
+def over_budget(s: Session, project: Project, cfg: dict) -> tuple[bool, float]:
+    budget = cfg["discovery"].get("monthly_unit_budget") or 0
+    now = utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    used = s.scalar(select(func.coalesce(func.sum(ApiUsage.units), 0)).where(
+        ApiUsage.project_id == project.id, ApiUsage.provider == "ahrefs", ApiUsage.created_at >= month_start)) or 0
+    return (budget > 0 and used >= budget), float(used)
 
 
 def _provider(s: Session, project: Project, cfg: dict):
@@ -106,15 +117,28 @@ def pull_backlinks(s: Session, project: Project, competitor_id: int | None = Non
     p = _provider(s, project, cfg)
     if p is None:
         return {"status": "needs_input"}
-    targets: list[tuple[int | None, str]] = [(None, project.domain)]
+    d = cfg["discovery"]
+    targets: list[tuple[int | None, str]] = [(None, project.domain)] if d["pull_own_backlinks"] else []
+    fresh_cutoff = utcnow() - timedelta(days=d["refresh_days"])
     for c in project.competitors:
-        if c.confirmed and (competitor_id is None or c.id == competitor_id):
-            targets.append((c.id, c.domain))
+        if not c.confirmed or (competitor_id is not None and c.id != competitor_id):
+            continue
+        pulled = c.backlinks_pulled_at
+        if pulled is not None and pulled.tzinfo is None:
+            pulled = pulled.replace(tzinfo=timezone.utc)
+        if competitor_id is None and pulled and pulled > fresh_cutoff:
+            continue  # pulled recently; explicit single-competitor pulls bypass this
+        targets.append((c.id, c.domain))
+    over, used = over_budget(s, project, cfg)
+    if over:
+        msg = f"Monthly API budget reached ({used:.0f}/{d['monthly_unit_budget']} units). Raise it in Settings to continue."
+        event(s, project.id, msg, "action")
+        return {"status": "budget", "used": used}
 
     total = 0
     for comp_id, dom in targets:
         try:
-            links = p.backlinks(dom, cfg["discovery"]["backlinks_per_competitor"])
+            links = p.backlinks(dom, d["backlinks_per_competitor"], d["min_link_dr"], d["include_traffic"])
         except prov.ProviderError as e:
             event(s, project.id, f"Backlink pull failed for {dom}: {e}", "warn")
             continue

@@ -50,7 +50,13 @@ DEFAULTS: dict = {
     "discovery": {
         "providers": ["ahrefs", "dataforseo"],  # tried in order; first configured one wins
         "max_competitors": 10,
-        "backlinks_per_competitor": 1000,
+        "backlinks_per_competitor": 300,  # sorted by DR; rows past ~300 are mostly junk
+        "min_link_dr": 10,  # filtered on the provider side -> we don't pay for junk rows
+        "include_traffic": False,  # Ahrefs traffic_domain costs 10 units/row; DR is enough for scoring
+        # Our own links are pulled too; spam is filtered out provider-side, so it is never paid for.
+        "pull_own_backlinks": True,
+        "refresh_days": 30,  # don't re-pull a competitor more often than this
+        "monthly_unit_budget": 10000,  # per project; jobs stop + alert when exceeded (0 = no limit)
         # A competitor "has enough data" if it clears these; otherwise we ask the user for one.
         "min_competitor_refdomains": 50,
         "seed_keywords": [],

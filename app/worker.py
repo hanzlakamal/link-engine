@@ -104,7 +104,17 @@ def _draft(s, project, payload):
 
 
 # ---------------------------------------------------------------- loop
+def _requeue_stale(s: Session) -> None:
+    """Jobs left 'running' by a restart/redeploy get retried after 30 min."""
+    cutoff = utcnow() - timedelta(minutes=30)
+    for j in s.scalars(select(Job).where(Job.status == "running", Job.updated_at < cutoff)):
+        j.status = "queued" if j.attempts < MAX_ATTEMPTS else "failed"
+        j.error = (j.error + "\ninterrupted (worker restart)").strip()
+    s.commit()
+
+
 def _claim(s: Session) -> Job | None:
+    _requeue_stale(s)
     q = (select(Job).where(Job.status == "queued", Job.run_at <= utcnow())
          .order_by(Job.run_at).limit(1))
     if engine.dialect.name == "postgresql":

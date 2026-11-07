@@ -124,7 +124,7 @@ class FakeProvider(BacklinkProvider):
     def metrics(self, domain, country="us"):
         return DomainMetrics(domain, 40, {"crazydogtshirts.com": 900, "teesrus.com": 300}.get(domain, 3))
 
-    def backlinks(self, domain, limit=1000):
+    def backlinks(self, domain, limit=300, min_dr=0, include_traffic=False):
         if domain == "tshirtcrisis.com":
             return [RawBacklink("https://linktr.ee/tc", "linktr.ee")]
         common = [
@@ -151,7 +151,9 @@ def test_new_site_asks_for_competitor_then_runs():
         s.refresh(p)
         assert pipeline.discover_competitors(s, p)["status"] == "ok" and not p.needs_input
 
-        assert pipeline.pull_backlinks(s, p)["new_backlinks"] == 8  # 4 + 3 + ours 1
+        assert pipeline.pull_backlinks(s, p)["new_backlinks"] == 8  # 4 + 3 + ours 1 (spam filtered provider-side)
+        s.flush()
+        assert pipeline.pull_backlinks(s, p)["new_backlinks"] == 0  # competitors cached 30 days; ours deduped
         s.flush()
         out = pipeline.build_opportunities(s, p)
         s.flush()
@@ -168,6 +170,7 @@ def test_new_site_asks_for_competitor_then_runs():
 def test_ahrefs_backlink_parsing():
     def handler(req):
         assert req.url.params["aggregation"] == "1_per_domain"
+        assert "traffic_domain" not in req.url.params["select"] and "is_spam" in req.url.params["where"]
         return httpx.Response(200, json={"backlinks": [{
             "url_from": "https://blog.x.com/p", "url_to": "https://c.com/", "anchor": "tees", "title": "T",
             "is_dofollow": True, "domain_rating_source": 55.0, "traffic_domain": 1200, "root_name_source": "x.com",
