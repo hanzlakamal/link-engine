@@ -5,6 +5,7 @@ COPY requirements-app.txt .
 RUN pip install --no-cache-dir -r requirements-app.txt
 COPY app ./app
 COPY start.sh .
-RUN sed -i "s/$//" start.sh && chmod +x start.sh
-# ROLE=web (default) or ROLE=worker — same image, two Railway services.
+# Strip Windows line endings so the script runs even if edited on Windows.
+RUN sed -i 's/\r$//' start.sh && chmod +x start.sh
+# ROLE=web (default) or ROLE=worker - same image, two Railway services.
 CMD ["./start.sh"]
