@@ -243,7 +243,13 @@ def _check_inbox(s, project, payload):
         return {"error": "no inbox"}
     replies = prs = 0
     sender = cfg["sender"].get("name") or project.name
-    for m in outreach.read_inbox(acct):
+    sources = cfg["outreach"]["pr_sources"]
+    known = {e.lower() for e in s.scalars(select(Contact.email).where(Contact.project_id == project.id)).all()}
+    done_ids = list((acct.data or {}).get("seen_ids", []))
+    msgs = outreach.read_inbox(acct, lambda a: a in known or any(a.split("@")[-1].endswith(x) for x in sources),
+                               skip_ids=set(done_ids))
+    acct.data = {**(acct.data or {}), "seen_ids": (done_ids + [m["message_id"] for m in msgs if m["message_id"]])[-2000:]}
+    for m in msgs:
         dom = m["from"].split("@")[-1]
         if any(dom.endswith(src) for src in cfg["outreach"]["pr_sources"]):
             for req in ai.extract_pr_requests(project.name, project.niche, m["body"]):

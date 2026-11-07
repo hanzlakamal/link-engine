@@ -187,20 +187,29 @@ def _body(msg) -> str:
     return (msg.get_payload(decode=True) or b"").decode(errors="replace")
 
 
-def read_inbox(account: PlatformAccount, days: int = 14) -> list[dict]:
+def read_inbox(account: PlatformAccount, wanted, days: int = 14, skip_ids: set | None = None) -> list[dict]:
+    """Read-only: never changes read/unread flags (it may be a person's real inbox).
+
+    Headers are peeked first; full bodies are fetched only for senders `wanted(from_addr)` accepts
+    (known contacts, journalist-request services). `skip_ids` = Message-IDs already processed.
+    """
     creds = json.loads(decrypt(account.secret) or "{}")
     host = (account.data or {}).get("host") or "imap.gmail.com"
     m = imaplib.IMAP4_SSL(host, 993, timeout=30)
     m.login(creds.get("username", ""), creds.get("password", ""))
-    m.select("INBOX")
+    m.select("INBOX", readonly=True)
     since = (utcnow() - timedelta(days=days)).strftime("%d-%b-%Y")
-    _, ids = m.search(None, f'(UNSEEN SINCE "{since}")')
+    _, ids = m.search(None, f'(SINCE "{since}")')
     out = []
-    for i in (ids[0].split() if ids and ids[0] else [])[:100]:
-        _, data = m.fetch(i, "(RFC822)")
+    for i in (ids[0].split() if ids and ids[0] else [])[-300:]:
+        _, data = m.fetch(i, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT MESSAGE-ID)])")
+        head = email.message_from_bytes(data[0][1])
+        sender, mid = parseaddr(head.get("From", ""))[1].lower(), head.get("Message-ID", "").strip()
+        if (skip_ids and mid in skip_ids) or not wanted(sender):
+            continue
+        _, data = m.fetch(i, "(BODY.PEEK[])")
         msg = email.message_from_bytes(data[0][1])
-        out.append({"from": parseaddr(msg.get("From", ""))[1].lower(), "subject": str(msg.get("Subject", "")),
-                    "body": _body(msg)[:6000], "message_id": msg.get("Message-ID", "")})
-        m.store(i, "+FLAGS", "\\Seen")
+        out.append({"from": sender, "subject": str(msg.get("Subject", "")), "body": _body(msg)[:6000],
+                    "message_id": mid})
     m.logout()
     return out
