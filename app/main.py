@@ -285,6 +285,17 @@ def run_job(pid: int, jtype: str, db: Session = Depends(get_db)):
     return _back(pid)
 
 
+@app.post("/p/{pid}/playbooks/{name}/reset")
+def reset_playbook(pid: int, name: str, request: Request, db: Session = Depends(get_db)):
+    p = _project(db, pid)
+    if not authz.at_least(me(request), "manager"):
+        raise HTTPException(403, "Only managers can reset a playbook")
+    n = playbooks.get(name)().reset(db, p)
+    db.add(Event(project_id=pid, user_id=me(request).id, level="info", message=f"Playbook '{name}' reset: {n} tasks removed"))
+    db.commit()
+    return _back(pid, "tasks")
+
+
 @app.post("/p/{pid}/playbooks/{name}")
 def apply_playbook(pid: int, name: str, start: str = Form(""), db: Session = Depends(get_db)):
     p = _project(db, pid)

@@ -2,7 +2,9 @@
 {% set ns = namespace(pb='') %}
 <div class="card tbl"><table>
 {% for t in tasks %}
-{% if t.playbook != ns.pb %}{% set ns.pb = t.playbook %}<tr><th colspan="5" style="padding-top:16px;font-size:13px;color:var(--ink)">{{ t.playbook }}</th></tr>{% endif %}
+{% if t.playbook != ns.pb %}{% set ns.pb = t.playbook %}<tr><th colspan="5" style="padding-top:16px;font-size:13px;color:var(--ink)">{{ t.playbook }}
+<form method="post" action="/p/{{p.id}}/playbooks/{{t.playbook}}" class="inline"><button title="Adds missing tasks and removes duplicates; keeps your progress">Tidy / re-apply</button></form>
+<form method="post" action="/p/{{p.id}}/playbooks/{{t.playbook}}/reset" class="inline" onsubmit="return confirm('Remove ALL tasks of this playbook, including done ones? You can apply it again afterwards.')"><button>Reset</button></form></th></tr>{% endif %}
 <tr style="{{ 'opacity:.5' if t.status in ('done','skipped') }}">
 <td><span class="chip">Day {{ t.day }}</span></td><td><span class="chip">{{ t.module }}</span><br><small>{{ t.owner }}</small></td>
 <td><b>{{ t.title }}</b><br><small>{{ t.detail }}</small></td>

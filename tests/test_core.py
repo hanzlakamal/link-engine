@@ -509,3 +509,27 @@ def test_playbook_apply_is_idempotent():
     assert first > 0 and pb.apply(s, p) == 0
     assert s.scalar(select(func.count()).select_from(Task).where(Task.project_id == p.id)) == first
     s.rollback()
+
+
+def test_playbook_apply_collapses_existing_duplicates():
+    from sqlalchemy import func, select
+
+    from app.db import SessionLocal, init_db
+    from app.models import Project, Task
+    from app.registry import playbooks
+    import app.playbooks  # noqa: F401
+    init_db()
+    s = SessionLocal()
+    p = Project(name="PB2", domain="pb-dup.com", type="ecommerce")
+    s.add(p)
+    s.flush()
+    pb = playbooks.get("launch_72h")()
+    n = pb.apply(s, p)
+    first = s.scalars(select(Task).where(Task.project_id == p.id)).first()
+    s.add(Task(project_id=p.id, playbook=pb.name, module=first.module, day=first.day, title=first.title, status="done"))
+    s.flush()
+    assert pb.apply(s, p) == 0
+    assert s.scalar(select(func.count()).select_from(Task).where(Task.project_id == p.id)) == n
+    assert s.scalar(select(Task.status).where(Task.project_id == p.id, Task.title == first.title)) == "done"
+    assert pb.reset(s, p) == n
+    s.rollback()
