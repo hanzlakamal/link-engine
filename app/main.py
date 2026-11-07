@@ -610,7 +610,7 @@ def account_page(request: Request, need2fa: int = 0, msg: str = "", setup: str =
     if setup and re.fullmatch(r"[A-Z2-7]{16,64}", setup):
         import segno
 
-        uri = authz.otpauth_uri(setup, u.email, get_settings().app_name)
+        uri = authz.otpauth_uri(setup, f"{u.email} ({setup[-4:]})", get_settings().app_name)
         qr = segno.make(uri, error="m").svg_inline(scale=5, dark="#000", light="#fff")
         grouped = " ".join(setup[i:i + 4] for i in range(0, len(setup), 4))
     return templates.TemplateResponse(request, "account.html", {

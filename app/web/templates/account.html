@@ -17,9 +17,12 @@
 <div style="background:#fff;display:inline-block;padding:8px;border-radius:8px">{{ qr|safe }}</div>
 <p><small>Can't scan? Choose <b>Enter a setup key</b>, key type <b>Time based</b>, and type (spaces are fine; only letters A–Z and digits 2–7, never 0, 1 or 8):</small><br>
 <code style="font-size:16px;letter-spacing:1px">{{ grouped }}</code></p>
-<form method="post" action="/account"><input type="hidden" name="action" value="2fa_enable"><input type="hidden" name="secret" value="{{ setup }}">
-<p><input name="code" inputmode="numeric" placeholder="2. Enter the 6-digit code" required style="width:100%"></p>
-<p><input type="password" name="current" placeholder="Current password" required style="width:100%"></p><button class="primary">Turn on</button></form>
+<p><small>In the app, use the entry ending in <b>({{ setup[-4:] }})</b>. Delete older "{{ app_name() }}" entries.</small></p>
+<form method="post" action="/account" autocomplete="off"><input type="hidden" name="action" value="2fa_enable"><input type="hidden" name="secret" value="{{ setup }}">
+<input type="email" name="username" value="{{ u.email }}" autocomplete="username" hidden>
+<p><input type="password" name="current" placeholder="Current password" required style="width:100%" autocomplete="current-password"></p>
+<p><input name="code" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" placeholder="6-digit code from the app" required style="width:100%" autocomplete="one-time-code"></p>
+<button class="primary">Turn on</button></form>
 {% else %}<p><span class="chip warn">OFF</span></p>
 <form method="post" action="/account"><input type="hidden" name="action" value="2fa_start">
 <p><input type="password" name="current" placeholder="Current password" required style="width:100%"></p><button class="primary">Set up 2FA</button></form>{% endif %}
