@@ -22,9 +22,15 @@
 <form method="post" action="/p/{{p.id}}/content/{{i.id}}">
 <div class="row"><span class="chip">{{ i.channel }}</span><span class="chip">{{ i.content_type }}</span>
 <span class="chip {{ 'win' if i.status in ('approved','scheduled') else ('warn' if i.status=='failed' else '') }}">{{ i.status }}</span>
-{% if api[i.id] %}<span class="chip action">publishes on approve</span>{% endif %}
+{% set is_mail = i.channel in ('outreach_email','email') %}
+{% if api[i.id] %}<span class="chip action">{{ 'sends on approve' if is_mail else 'publishes on approve' }}</span>{% endif %}
+{% set o = opps.get(i.opportunity_id) %}{% if o %}<small>For: <a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.domain }}</a> · {{ o.title[:70] }}</small>{% endif %}
 {% if i.data.error %}<small style="color:var(--bad)">{{ i.data.error }}</small>{% endif %}
 {% if i.data.notes %}<small>Reviewer note: {{ i.data.notes }}</small>{% endif %}</div>
+{% if is_mail %}<p class="row"><label>To</label>
+{% if recipients.get(i.id) %}<select name="contact_id">{% for c, generic in recipients[i.id] %}<option value="{{ c.id }}" {{ 'selected' if c.id == i.contact_id }}>{{ c.name ~ ' · ' if c.name }}{{ c.email if full_contacts else c.email|mask_email }}{{ ' (general inbox)' if generic }}{{ ' · ' ~ c.status if c.status != 'new' }}</option>{% endfor %}</select>
+<small>A named person is picked first; general inboxes like info@ come last.</small>
+{% else %}<small style="color:var(--bad)">No contact yet: click "Find contact" on the opportunity, or add one in Outreach &amp; PR.</small>{% endif %}</p>{% endif %}
 <p><input name="title" value="{{ i.title }}" style="width:100%"></p>
 {% if i.channel == 'own_blog' %}<p class="row"><label>Category</label>
 {% if i.data.categories %}<select name="category">{% for c in i.data.categories %}<option {{ 'selected' if c == i.data.category }}>{{ c }}</option>{% endfor %}</select>
@@ -32,7 +38,7 @@
 <small>Picked by Claude; change before approving.</small></p>{% endif %}
 <p><textarea name="body" rows="10">{{ i.body }}</textarea></p>
 <div class="row">
-{% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">{{ 'Approve & publish' if api[i.id] else 'Approve' }}</button>{% endif %}
+{% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">{{ ('Approve & send' if is_mail else 'Approve & publish') if api[i.id] else 'Approve' }}</button>{% endif %}
 <button name="action" value="save">Save edits</button><button name="action" value="reject">Reject</button>
 {% if api[i.id] and i.status in ('approved','scheduled','failed') %}<button formaction="/p/{{p.id}}/content/{{i.id}}/publish" class="primary">Publish now</button>{% endif %}
 {% if not api[i.id] %}

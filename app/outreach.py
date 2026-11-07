@@ -101,6 +101,21 @@ def in_business_hours(cfg: dict) -> bool:
     return now.weekday() < 5 and start <= now.hour < end
 
 
+GENERIC_LOCALS = {"info", "hello", "contact", "contacts", "admin", "support", "sales", "office", "team", "mail",
+                  "enquiries", "inquiries", "help", "webmaster", "press", "media", "editor", "editors", "news",
+                  "marketing", "advertising", "ads", "partnerships", "hi", "general", "service", "noreply", "no-reply"}
+
+
+def is_generic(email: str) -> bool:
+    return (email or "").split("@")[0].lower() in GENERIC_LOCALS
+
+
+def best_contact(contacts):
+    """Pick who to email: a named person beats a role inbox; never unsubscribed/bounced."""
+    ok = [c for c in contacts if c.status not in ("unsubscribed", "bounced")]
+    return sorted(ok, key=lambda c: (is_generic(c.email), not c.name, c.id))[0] if ok else None
+
+
 def send_email(s: Session, project: Project, item: ContentItem) -> tuple[bool, str, str]:
     """Returns (ok, message, message_id). Caller handles limits/approval state."""
     cfg = project_cfg(project)

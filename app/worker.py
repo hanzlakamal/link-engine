@@ -96,7 +96,9 @@ def _draft(s, project, payload):
                            sender=project_cfg(project)["sender"])
     from app.models import Contact
 
-    contact = s.scalar(select(Contact).where(Contact.opportunity_id == opp.id, Contact.status == "new"))
+    from app.outreach import best_contact
+
+    contact = best_contact(s.scalars(select(Contact).where(Contact.opportunity_id == opp.id)).all())
     s.add(ContentItem(project_id=project.id, opportunity_id=opp.id, created_by=payload.get("user_id"),
                       contact_id=contact.id if contact else None,
                       channel="outreach_email" if opp.kind != "self_publish" else platform, content_type=ctype,

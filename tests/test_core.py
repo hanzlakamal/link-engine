@@ -479,3 +479,13 @@ def test_opportunity_search_and_done_returns_to_queue():
                    headers={"referer": f"http://testserver/p/{pid}/queue"})
         assert r.url.path == f"/p/{pid}/queue"
         assert "Undo" in c.get(f"/p/{pid}/opportunities?status=done").text
+
+
+def test_best_contact_prefers_named_person():
+    from types import SimpleNamespace as N
+
+    from app.outreach import best_contact
+    cs = [N(id=1, email="info@site.com", name="", status="new"),
+          N(id=2, email="amy.j@site.com", name="", status="new"),
+          N(id=3, email="bob@site.com", name="Bob", status="unsubscribed")]
+    assert best_contact(cs).id == 2

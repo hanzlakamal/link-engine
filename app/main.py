@@ -419,7 +419,24 @@ def queue_page(pid: int, request: Request, db: Session = Depends(get_db)):
         "biz": {k: v for k, v in {**project_cfg(p)["business"],
                                   "business_name": project_cfg(p)["business"].get("business_name") or p.name}.items() if v},
         "compose": {i.id: _compose_url(db, i) for i in items},
+        "opps": {o.id: o for o in db.scalars(select(Opportunity).where(
+            Opportunity.id.in_([i.opportunity_id for i in items if i.opportunity_id] or [0])))},
+        "recipients": _recipients(db, items), "full_contacts": authz.at_least(me(request), "manager"),
         "api": {i.id: get_channel(i.channel).mode == "api" for i in items}})
+
+
+def _recipients(db: Session, items) -> dict:
+    """Possible To: addresses per email draft (contacts found for that opportunity), best first."""
+    from app.models import Contact
+    from app.outreach import is_generic
+
+    out = {}
+    for i in items:
+        if i.channel in ("outreach_email", "email") and i.opportunity_id:
+            cs = db.scalars(select(Contact).where(Contact.opportunity_id == i.opportunity_id,
+                                                  Contact.status.notin_(("unsubscribed", "bounced")))).all()
+            out[i.id] = [(c, is_generic(c.email)) for c in sorted(cs, key=lambda c: (is_generic(c.email), c.id))]
+    return out
 
 
 def _compose_url(db: Session, item: ContentItem) -> str:
@@ -525,7 +542,7 @@ def account_action(pid: int, aid: int, action: str, request: Request, db: Sessio
 @app.post("/p/{pid}/content/{cid}")
 def content_action(pid: int, cid: int, request: Request, action: str = Form(...), title: str = Form(""),
                    body: str = Form(""), published_url: str = Form(""), category: str = Form(None),
-                   db: Session = Depends(get_db)):
+                   contact_id: int = Form(0), db: Session = Depends(get_db)):
     c = db.get(ContentItem, cid)
     if not c or c.project_id != pid:
         raise HTTPException(404)
@@ -537,6 +554,13 @@ def content_action(pid: int, cid: int, request: Request, action: str = Form(...)
         c.approved_by = u.id
     if category is not None:
         c.data = {**(c.data or {}), "category": category.strip()}
+    if contact_id:
+        from app.models import Contact
+
+        ct = db.get(Contact, contact_id)
+        if not ct or ct.project_id != pid:
+            raise HTTPException(400, "Unknown contact")
+        c.contact_id = ct.id
     if action == "save":
         c.title, c.body = title, body
     elif action == "approve":
