@@ -411,19 +411,43 @@ def opportunity_action(pid: int, oid: int, request: Request, action: str = Form(
     return _back_to_list(request, pid)
 
 
+QUEUE_VIEWS = {  # Link publishing sub-tabs: every content status has a home, nothing disappears
+    "approve": ("To approve", ("pending_approval",)),
+    "approved": ("Approved / sending", ("approved", "scheduled")),
+    "published": ("Published", ("published",)),
+    "failed": ("Failed", ("failed",)),
+    "rejected": ("Rejected", ("rejected",)),
+}
+
+
 @app.get("/p/{pid}/queue", response_class=HTMLResponse)
-def queue_page(pid: int, request: Request, page: int = 1, show: str = "", db: Session = Depends(get_db)):
+def queue_page(pid: int, request: Request, page: int = 1, show: str = "", view: str = "", moved: str = "",
+               search: str = "", db: Session = Depends(get_db)):
     p = _project(db, pid)
-    iq = select(ContentItem).where(ContentItem.project_id == pid,
-                                   ContentItem.status.in_(("pending_approval", "approved", "scheduled", "failed")))
-    mail = ("outreach_email", "email")
-    if show == "emails":
-        iq = iq.where(ContentItem.channel.in_(mail))
-    elif show == "posts":
-        iq = iq.where(ContentItem.channel.notin_(mail))
-    elif show in ("pending_approval", "approved", "scheduled", "failed"):
-        iq = iq.where(ContentItem.status == show)
-    items, pager = paginate(iq.order_by(ContentItem.created_at.desc()), page, db)
+    by_status = dict(db.execute(select(ContentItem.status, func.count()).where(ContentItem.project_id == pid)
+                                .group_by(ContentItem.status)).all())
+    counts = {k: sum(by_status.get(s, 0) for s in sts) for k, (_, sts) in QUEUE_VIEWS.items()}
+    if view not in QUEUE_VIEWS and view != "signups":
+        view = "approve" if counts["approve"] else "signups"
+    items, pager = [], {"page": 1, "pages": 1, "total": 0}
+    if view in QUEUE_VIEWS:
+        iq = select(ContentItem).where(ContentItem.project_id == pid, ContentItem.status.in_(QUEUE_VIEWS[view][1]))
+        mail = ("outreach_email", "email")
+        if show == "emails":
+            iq = iq.where(ContentItem.channel.in_(mail))
+        elif show == "posts":
+            iq = iq.where(ContentItem.channel.notin_(mail))
+        if search.strip():
+            from sqlalchemy import or_
+
+            like = f"%{search.strip()[:100]}%"
+            iq = iq.where(or_(ContentItem.title.ilike(like), ContentItem.channel.ilike(like),
+                              ContentItem.published_url.ilike(like)))
+        items, pager = paginate(iq.order_by(ContentItem.updated_at.desc()), page, db)
+    links = {}
+    if view == "published" and items:
+        for el in db.scalars(select(EarnedLink).where(EarnedLink.content_item_id.in_([i.id for i in items]))):
+            links.setdefault(el.content_item_id, []).append(el)
     kit_all = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.kind == "self_publish",
                          Opportunity.status.in_(("new", "approved", "in_progress", "done")))
                          .order_by(Opportunity.score.desc())).all()
@@ -433,7 +457,9 @@ def queue_page(pid: int, request: Request, page: int = 1, show: str = "", db: Se
     kit_opps = [o for o in kit_all if o.status != "done"]
     kit_done = [o for o in kit_all if o.status == "done"]
     return templates.TemplateResponse(request, "queue.html", {
-        "p": p, "items": items, "tab": "queue", "pager": pager, "show": show, "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps, "kit_done": kit_done,
+        "p": p, "items": items, "tab": "queue", "pager": pager, "show": show, "view": view, "views": QUEUE_VIEWS,
+        "counts": counts, "moved": moved, "search": search, "links": links,
+        "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps, "kit_done": kit_done,
         "biz": {k: v for k, v in {**project_cfg(p)["business"],
                                   "business_name": project_cfg(p)["business"].get("business_name") or p.name}.items() if v},
         "compose": {i.id: _compose_url(db, i) for i in items},
@@ -580,8 +606,9 @@ def account_action(pid: int, aid: int, action: str, request: Request, db: Sessio
 @app.post("/p/{pid}/content/{cid}")
 def content_action(pid: int, cid: int, request: Request, action: str = Form(...), title: str = Form(""),
                    body: str = Form(""), published_url: str = Form(""), category: str = Form(None),
-                   contact_id: int = Form(0), db: Session = Depends(get_db)):
+                   contact_id: int = Form(0), view: str = Form(""), db: Session = Depends(get_db)):
     c = db.get(ContentItem, cid)
+    before = c.status if c else None
     if not c or c.project_id != pid:
         raise HTTPException(404)
     u = me(request)
@@ -607,21 +634,170 @@ def content_action(pid: int, cid: int, request: Request, action: str = Form(...)
             enqueue(db, "publish_content", pid, content_id=c.id, user_id=u.id)
     elif action == "reject":
         c.status = "rejected"
-    elif action == "published" and published_url:
+    elif action == "restore":  # rejected/failed back to the approval list
+        c.status = "pending_approval"
+        c.data = {k: v for k, v in (c.data or {}).items() if k != "error"}
+    elif action == "published":
+        published_url = published_url.strip()
         if not published_url.startswith(("https://", "http://")):
-            raise HTTPException(400, "Live URL must start with https://")
-        c.status, c.published_url, c.published_by = "published", published_url, u.id
-        db.add(EarnedLink(project_id=pid, source_url=published_url, target_url=c.target_url,
-                          kind="outreach" if c.channel in ("email", "outreach_email") else "self_publish", status="pending",
-                          content_item_id=c.id, credited_to=u.id))
-        db.flush()
-        el = db.scalar(select(EarnedLink).where(EarnedLink.project_id == pid, EarnedLink.source_url == published_url))
-        if el:  # you pasted it -> analyse that one page now
-            enqueue(db, "check_links", pid, link_id=el.id)
+            raise HTTPException(400, "Paste the live page URL (starting with https://) before clicking Mark published")
+        is_mail = c.channel in ("email", "outreach_email")
+        if c.status != "published" or not is_mail:  # sent emails stay 'sent'; we only attach the editor's page
+            c.status, c.published_by = "published", c.published_by or u.id
+        c.published_url = c.published_url or published_url
+        _add_earned_link(db, pid, published_url, c.target_url, "outreach" if is_mail else "self_publish", u.id, c.id)
         db.add(Event(project_id=pid, user_id=u.id, level="win",
-                     message=f"{u.name or u.email} published on {c.channel}: {published_url}"))
+                     message=f"{u.name or u.email} {'got a link from' if is_mail else 'published on'} "
+                             f"{c.channel}: {published_url}"))
     db.commit()
-    return _back(pid, "queue")
+    from urllib.parse import quote
+
+    if c.status != before:
+        dest = next((k for k, (_, sts) in QUEUE_VIEWS.items() if c.status in sts), "")
+        return RedirectResponse(f"/p/{pid}/queue?view={quote(view)}&moved={dest}", status_code=303)
+    return RedirectResponse(f"/p/{pid}/queue?view={quote(view)}", status_code=303)
+
+
+def _add_earned_link(db: Session, pid: int, url: str, target: str, kind: str, uid: int | None,
+                     content_id: int | None = None, note: str = "") -> EarnedLink:
+    """Create (or reuse) the earned-link row for a page and queue its analysis."""
+    el = db.scalar(select(EarnedLink).where(EarnedLink.project_id == pid, EarnedLink.source_url == url))
+    if el is None:
+        el = EarnedLink(project_id=pid, source_url=url, target_url=target or "", kind=kind, status="pending",
+                        content_item_id=content_id, credited_to=uid, audit={"note": note} if note else None)
+        db.add(el)
+        db.flush()
+    enqueue(db, "check_links", pid, link_id=el.id)
+    return el
+
+
+def _links_query(db: Session, pid: int, request: Request, status: str, kind: str, search: str, person: int):
+    q = select(EarnedLink).where(EarnedLink.project_id == pid)
+    if _builder_only_own(me(request)) and me(request).role != "client":
+        person = me(request).id
+    if person:
+        q = q.where(EarnedLink.credited_to == person)
+    if status:
+        q = q.where(EarnedLink.status == status)
+    if kind:
+        q = q.where(EarnedLink.kind == kind)
+    if search.strip():
+        q = q.where(EarnedLink.source_url.ilike(f"%{search.strip()[:100]}%"))
+    return q.order_by(EarnedLink.created_at.desc())
+
+
+def _link_rows(el: EarnedLink) -> list[dict]:
+    """One row per individual link on the page (falls back to the page itself before it's analysed)."""
+    a = el.audit or {}
+    links = a.get("links") or ([{"url": el.target_url, "anchor": el.anchor or "", "dofollow": el.dofollow,
+                                 "in_content": a.get("in_content")}] if el.anchor else [])
+    return links or [{"url": "", "anchor": "", "dofollow": None, "in_content": None}]
+
+
+@app.get("/p/{pid}/links", response_class=HTMLResponse)
+def links_page(pid: int, request: Request, status: str = "", kind: str = "", search: str = "", person: int = 0,
+               page: int = 1, db: Session = Depends(get_db)):
+    from app.classify import root_domain
+
+    p = _project(db, pid)
+    rows = db.scalars(_links_query(db, pid, request, status, kind, search, person)).all()
+    groups: dict[str, list[EarnedLink]] = {}
+    for el in rows:
+        groups.setdefault(root_domain(domain_of(el.source_url)), []).append(el)
+    doms = sorted(groups.items(), key=lambda kv: (-max((e.score or 0) for e in kv[1]), kv[0]))
+    page = max(1, page)
+    shown = doms[(page - 1) * PER_PAGE: page * PER_PAGE]
+    pager = {"page": page, "pages": max(1, -(-len(doms) // PER_PAGE)), "total": len(doms)}
+    external = [e for e in rows if not (e.audit or {}).get("internal")]
+    scored = [e.score for e in external if e.score is not None]
+    summary = {
+        "domains": len({root_domain(domain_of(e.source_url)) for e in external}),
+        "pages": len(external),
+        "links": sum((e.audit or {}).get("link_count") or (1 if e.status == "live" else 0) for e in external),
+        "live": sum(1 for e in external if e.status == "live"),
+        "lost": sum(1 for e in external if e.status in ("lost", "not_found")),
+        "dofollow": sum(1 for e in external if e.dofollow),
+        "avg": round(sum(scored) / len(scored)) if scored else None,
+        "internal": len(rows) - len(external),
+    }
+    from urllib.parse import urlencode
+
+    qs = urlencode({k: v for k, v in {"status": status, "kind": kind, "search": search,
+                                      "person": person or ""}.items() if v})
+    return templates.TemplateResponse(request, "links.html", {
+        "p": p, "tab": "links", "groups": shown, "pager": pager, "summary": summary, "qs": ("&" + qs) if qs else "",
+        "f": {"status": status, "kind": kind, "search": search, "person": person},
+        "kinds": sorted({e.kind for e in rows if e.kind} | {"self_publish", "outreach", "pr", "other"}),
+        "team": _team(db, pid), "names": {u.id: u.name or u.email for u in db.scalars(select(User))},
+        "is_manager": authz.at_least(me(request), "manager"), "rows": _link_rows})
+
+
+@app.get("/p/{pid}/links.csv")
+def links_csv(pid: int, request: Request, status: str = "", kind: str = "", search: str = "", person: int = 0,
+              db: Session = Depends(get_db)):
+    import csv
+    import io
+
+    from fastapi.responses import Response
+
+    from app.classify import root_domain
+
+    p = _project(db, pid)
+    names = {u.id: u.name or u.email for u in db.scalars(select(User))}
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["referring_domain", "page_url", "page_status", "page_score", "links_on_page", "link_to", "anchor",
+                "dofollow", "placement", "type", "credited_to", "published", "last_checked", "issues"])
+    for el in db.scalars(_links_query(db, pid, request, status, kind, search, person)):
+        a = el.audit or {}
+        for ln in _link_rows(el):
+            w.writerow([root_domain(domain_of(el.source_url)), el.source_url, el.status,
+                        "" if el.score is None else int(el.score), a.get("link_count", ""), ln.get("url", ""),
+                        ln.get("anchor", ""), {True: "dofollow", False: "nofollow"}.get(ln.get("dofollow"), ""),
+                        {True: "in content", False: "nav/footer/sidebar"}.get(ln.get("in_content"), ""), el.kind,
+                        names.get(el.credited_to, ""), el.created_at.strftime("%Y-%m-%d"),
+                        el.last_checked.strftime("%Y-%m-%d") if el.last_checked else "", "; ".join(a.get("issues", []))])
+    fname = f"earned-links-{p.domain}-{date.today().isoformat()}.csv"
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.post("/p/{pid}/links")
+def add_link(pid: int, request: Request, url: str = Form(...), kind: str = Form("outreach"), note: str = Form(""),
+             db: Session = Depends(get_db)):
+    """Record a link earned outside the publishing flow (editor placed it, PR mention, partner...)."""
+    _project(db, pid)
+    url = url.strip()
+    if not url.startswith(("https://", "http://")):
+        raise HTTPException(400, "URL must start with https://")
+    if kind not in ("self_publish", "outreach", "pr", "other"):
+        kind = "other"
+    u = me(request)
+    _add_earned_link(db, pid, url, "", kind, u.id, note=note.strip()[:300])
+    db.add(Event(project_id=pid, user_id=u.id, level="win", message=f"{u.name or u.email} added earned link: {url}"))
+    db.commit()
+    return RedirectResponse(f"/p/{pid}/links", status_code=303)
+
+
+@app.post("/p/{pid}/links/{lid}/{action}")
+def link_action(pid: int, lid: int, action: str, request: Request, db: Session = Depends(get_db)):
+    el = db.get(EarnedLink, lid)
+    if not el or el.project_id != pid:
+        raise HTTPException(404)
+    u = me(request)
+    if action == "recheck":
+        if not authz.at_least(u, "manager") and el.credited_to != u.id:
+            raise HTTPException(403)
+        enqueue(db, "check_links", pid, link_id=el.id)
+    elif action == "delete":
+        if not authz.at_least(u, "manager"):
+            raise HTTPException(403, "Only managers can delete earned links")
+        audit(db, u.id, f"Deleted earned link {el.source_url}")
+        db.delete(el)
+    else:
+        raise HTTPException(404)
+    db.commit()
+    return RedirectResponse(request.headers.get("referer") or f"/p/{pid}/links", status_code=303)
 
 
 @app.get("/p/{pid}/tasks", response_class=HTMLResponse)

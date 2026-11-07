@@ -1,56 +1,112 @@
-{% extends "base.html" %}{% block body %}
-<div class="grid" style="margin-bottom:12px">
-<div class="card"><h3>New blog article (hub: WordPress or Shopify)</h3>
-<form method="post" action="/p/{{p.id}}/articles">
-<p><input name="topic" placeholder="Topic, e.g. 25 funny Thanksgiving shirts for the family dinner" required style="width:100%"></p>
-<p class="row"><input name="target_url" placeholder="Page to link (optional)" style="flex:1"><button class="primary">Draft with Claude</button></p></form></div>
-<div class="card"><h3>Profile kit &amp; sign-up checklist</h3>
-{% if kit %}<details><summary>Copy-ready texts</summary>{% for k in ['tagline','short','medium','long','founder_bio'] %}<p><b>{{ k }}</b><br><textarea rows="3" readonly onclick="this.select()">{{ kit[k] }}</textarea></p>{% endfor %}
+{% extends "base.html" %}{% from "_pager.html" import pager as pg %}{% block body %}
+{# Link publishing = one pipeline: Sign-ups -> To approve -> Approved / sending -> Published (+ Failed, Rejected). #}
+<nav class="tabs" style="margin-top:0">
+<a href="?view=signups" class="{{ 'on' if view=='signups' }}">Sign-ups checklist <span class="chip">{{ kit_opps|length }}</span></a>
+{% for k, (label, _) in views.items() %}<a href="?view={{ k }}" class="{{ 'on' if view==k }}">{{ label }} <span class="chip {{ 'warn' if k=='failed' and counts[k] else ('action' if k=='approve' and counts[k] else '') }}">{{ counts[k] }}</span></a>{% endfor %}
+</nav>
+<p><small><b>How it works:</b> Claude drafts &rarr; you edit &amp; approve in <i>To approve</i> &rarr; API channels (blog, email) publish/send by themselves, the rest you post with <i>Copy &amp; open</i> &rarr;
+paste the live URL &rarr; it moves to <i>Published</i> and the link is scored in <a href="/p/{{ p.id }}/links">Links earned</a>. Nothing is deleted: rejected items can be restored.</small></p>
+
+{% if moved %}<div class="banner">Done. The item moved to <a href="?view={{ moved }}"><b>{{ views[moved][0] if moved in views else moved }}</b></a>.</div>{% endif %}
+
+{% if view == 'signups' %}
+<div class="grid">
+<div class="card"><h3>1. Copy-ready texts</h3>
+{% if kit %}<details open><summary>Profile kit</summary>{% for k in ['tagline','short','medium','long','founder_bio'] %}<p><b>{{ k }}</b><br><textarea rows="3" readonly onclick="this.select()">{{ kit[k] }}</textarea></p>{% endfor %}
 <p><small>Categories: {{ (kit.categories or [])|join(', ') }} · Keywords: {{ (kit.keywords or [])|join(', ') }}</small></p></details>
-{% else %}<p class="muted">Click "Profile kit" on Overview to generate texts once.</p>{% endif %}
+{% else %}<p class="muted">Click "Profile kit" on Overview to generate the texts once.</p>{% endif %}
 {% if biz %}<details><summary>Business details (NAP) for forms</summary><table>{% for k, v in biz.items() if v %}<tr><td><small>{{ k }}</small></td><td><input value="{{ v if v is string else v|join(', ') }}" readonly onclick="this.select()" style="width:100%"></td></tr>{% endfor %}</table></details>
 {% else %}<p><small>Fill in <a href="/p/{{ p.id }}/settings">Settings &rarr; Business profile</a> once; it shows here for every directory form.</small></p>{% endif %}
-{% for o in kit_opps[:25] %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
-<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="done"><button>Done</button></form></div>{% endfor %}
+</div>
+<div class="card"><h3>2. Sites to sign up on <small>({{ kit_opps|length }} to do)</small></h3>
+<p><small>Open the site, create the profile with the texts on the left, then click <b>Done</b>. If the profile page has a public URL, paste it in <a href="/p/{{ p.id }}/links">Links earned &rarr; Add a link</a> so it's scored.</small></p>
+{% for o in kit_opps %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }} · {{ o.data.link }}</small>
+<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="done"><button>Done</button></form></div>
+{% else %}<p class="muted">Nothing left to sign up for. Run discovery on Overview to find more.</p>{% endfor %}
 {% if kit_done %}<details style="margin-top:8px"><summary>Done ({{ kit_done|length }})</summary>
-{% for o in kit_done[:100] %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
+{% for o in kit_done[:200] %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="new"><button title="Move back to the to-do list">Undo</button></form></div>{% endfor %}
 </details>{% endif %}
 </div></div>
-<form method="get" class="row" style="margin:12px 0">
-<select name="show"><option value="">all drafts</option>{% for v, l in [('emails','emails only'),('posts','posts &amp; articles'),('pending_approval','awaiting approval'),('approved','approved'),('scheduled','scheduled'),('failed','failed')] %}<option value="{{ v }}" {{ 'selected' if v==show }}>{{ l|safe }}</option>{% endfor %}</select>
-<button>Filter</button><small>{{ pager.total }} item(s)</small></form>
+
+{% else %}
+<div class="row" style="margin:8px 0">
+<form method="get" class="row"><input type="hidden" name="view" value="{{ view }}">
+<input name="search" value="{{ search }}" placeholder="Search title, channel or URL">
+<select name="show"><option value="">emails &amp; posts</option><option value="emails" {{ 'selected' if show=='emails' }}>emails only</option><option value="posts" {{ 'selected' if show=='posts' }}>posts &amp; articles only</option></select>
+<button>Filter</button></form><small>{{ pager.total }} item(s)</small>
+<span style="flex:1"></span>
+{% if view == 'approve' %}<details><summary class="btn">+ New blog article</summary>
+<form method="post" action="/p/{{p.id}}/articles" class="card" style="margin-top:6px;min-width:340px">
+<p><input name="topic" placeholder="Topic, e.g. 25 funny Thanksgiving shirts for the family dinner" required style="width:100%"></p>
+<p class="row"><input name="target_url" placeholder="Page to link (optional)" style="flex:1"><button class="primary">Draft with Claude</button></p>
+<small>Published to your blog hub (WordPress/Shopify) after approval.</small></form></details>{% endif %}
+</div>
+
 {% for i in items %}
-<div class="card" style="margin-bottom:12px">
-<form method="post" action="/p/{{p.id}}/content/{{i.id}}">
-<div class="row"><span class="chip">{{ i.channel }}</span><span class="chip">{{ i.content_type }}</span>
-<span class="chip {{ 'win' if i.status in ('approved','scheduled') else ('warn' if i.status=='failed' else '') }}">{{ i.status }}</span>
 {% set is_mail = i.channel in ('outreach_email','email') %}
-{% if api[i.id] %}<span class="chip action">{{ 'sends on approve' if is_mail else 'publishes on approve' }}</span>{% endif %}
-{% set o = opps.get(i.opportunity_id) %}{% if o %}<small>For: <a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.domain }}</a> · {{ o.title[:70] }}</small>{% endif %}
-{% if i.data.error %}<small style="color:var(--bad)">{{ i.data.error }}</small>{% endif %}
-{% if i.data.notes %}<small>Reviewer note: {{ i.data.notes }}</small>{% endif %}</div>
-{% if is_mail %}<p class="row"><label>To</label>
-{% if recipients.get(i.id) %}<select name="contact_id">{% for c, generic in recipients[i.id] %}<option value="{{ c.id }}" {{ 'selected' if c.id == i.contact_id }}>{{ c.name ~ ' · ' if c.name }}{{ c.email if full_contacts else c.email|mask_email }}{{ ' (general inbox)' if generic }}{{ ' · ' ~ c.status if c.status != 'new' }}</option>{% endfor %}</select>
-<small>A named person is picked first; general inboxes like info@ come last.</small>
-{% else %}<small style="color:var(--bad)">No contact yet: click "Find contact" on the opportunity, or add one in Outreach &amp; PR.</small>{% endif %}</p>{% endif %}
-<p><input name="title" value="{{ i.title }}" style="width:100%"></p>
-{% if i.channel == 'own_blog' %}<p class="row"><label>Category</label>
-{% if i.data.categories %}<select name="category">{% for c in i.data.categories %}<option {{ 'selected' if c == i.data.category }}>{{ c }}</option>{% endfor %}</select>
-{% else %}<input name="category" value="{{ i.data.category or '' }}" placeholder="Category / tag">{% endif %}
-<small>Picked by Claude; change before approving.</small></p>{% endif %}
-<p><textarea name="body" rows="10">{{ i.body }}</textarea></p>
-<div class="row">
-{% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">{{ ('Approve & send' if is_mail else 'Approve & publish') if api[i.id] else 'Approve' }}</button>{% endif %}
-<button name="action" value="save">Save edits</button>
-{% if is_mail %}<button formaction="/p/{{p.id}}/content/{{i.id}}/test_email" title="Saves edits and sends a [TEST] copy to your own login email">Send test to me</button>{% endif %}<button name="action" value="reject">Reject</button>
-{% if api[i.id] and i.status in ('approved','scheduled','failed') %}<button formaction="/p/{{p.id}}/content/{{i.id}}/publish" class="primary">Publish now</button>{% endif %}
-{% if not api[i.id] %}
-<button type="button" onclick="navigator.clipboard.writeText(this.closest('form').body.value);this.textContent='Copied ✓'">Copy text</button>
-{% if compose[i.id] %}<a class="btn" href="{{ compose[i.id] }}" target="_blank" rel="noopener" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('form').body.value)">Copy &amp; open {{ i.channel }}</a>{% endif %}
-<input name="published_url" placeholder="Paste live URL after posting"><button name="action" value="published">Mark published</button>
+{% set o = opps.get(i.opportunity_id) %}
+<div class="card" style="margin-bottom:12px">
+<form method="post" action="/p/{{p.id}}/content/{{i.id}}"><input type="hidden" name="view" value="{{ view }}">
+<div class="row"><span class="chip">{{ i.channel }}</span><span class="chip">{{ i.content_type }}</span>
+<span class="chip {{ 'win' if i.status in ('approved','scheduled','published') else ('warn' if i.status in ('failed','rejected') else '') }}">{{ 'sent' if is_mail and i.status=='published' else i.status }}</span>
+{% if api[i.id] and view in ('approve','approved') %}<span class="chip action">{{ 'sends on approve' if is_mail else 'publishes on approve' }}</span>{% endif %}
+{% if o %}<small>For: <a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.domain }}</a> · {{ o.title[:70] }}</small>{% endif %}
+<span style="flex:1"></span><small>{{ i.updated_at.strftime('%b %d %H:%M') }}</small></div>
+{% if i.data.error %}<p><small style="color:var(--bad)">Error: {{ i.data.error }}</small></p>{% endif %}
+{% if i.data.notes and view == 'approve' %}<p><small>Reviewer note: {{ i.data.notes }}</small></p>{% endif %}
+
+{% if view == 'published' %}
+  <p><b>{{ i.title }}</b></p>
+  {% if i.published_url %}<p><small>{{ 'Sent' if is_mail else 'Live at' }}: {% if not is_mail %}<a href="{{ i.published_url }}" target="_blank" rel="noopener">{{ i.published_url[:90] }}</a>{% endif %}</small></p>{% endif %}
+  {% for el in links.get(i.id, []) %}
+  <p class="row"><b style="color:{{ 'var(--win)' if (el.score or 0) >= 70 else ('var(--warn)' if (el.score or 0) >= 40 else 'var(--bad)') }}">{{ el.score|int if el.score is not none else '…' }}</b>
+  <small><a href="{{ el.source_url }}" target="_blank" rel="noopener">{{ el.source_url[:70] }}</a> · {{ el.status }}
+  {% if el.audit and el.audit.link_count %} · {{ el.audit.link_count }} link(s) to you, {{ el.audit.in_content_count }} in content{% endif %}
+  {% if el.audit and el.audit.internal %} · <span style="color:var(--warn)">own site (not a backlink)</span>{% endif %}</small>
+  <a class="btn" href="/p/{{ p.id }}/links?search={{ el.source_url|urlencode }}">Details</a></p>
+  {% else %}
+  <p class="row"><input name="published_url" placeholder="{{ 'Editor published it? Paste the article URL' if is_mail else 'Paste the live URL' }}" style="flex:1"><button name="action" value="published">Add live link</button></p>
+  {% endfor %}
+  <details><summary><small>Show text</small></summary><pre style="white-space:pre-wrap">{{ i.body }}</pre></details>
+
+{% elif view == 'rejected' %}
+  <p><b>{{ i.title }}</b></p>
+  <details><summary><small>Show text</small></summary><pre style="white-space:pre-wrap">{{ i.body }}</pre></details>
+  <div class="row"><button name="action" value="restore" class="primary">Restore to To approve</button></div>
+
+{% else %}
+  {% if is_mail %}<p class="row"><label>To</label>
+  {% if recipients.get(i.id) %}<select name="contact_id">{% for c, generic in recipients[i.id] %}<option value="{{ c.id }}" {{ 'selected' if c.id == i.contact_id }}>{{ c.name ~ ' · ' if c.name }}{{ c.email if full_contacts else c.email|mask_email }}{{ ' (general inbox)' if generic }}{{ ' · ' ~ c.status if c.status != 'new' }}</option>{% endfor %}</select>
+  <small>A named person is picked first; general inboxes like info@ come last.</small>
+  {% else %}<small style="color:var(--bad)">No contact yet: click "Find contact" on the opportunity, or add one in Outreach &amp; PR.</small>{% endif %}</p>{% endif %}
+  <p><input name="title" value="{{ i.title }}" style="width:100%"></p>
+  {% if i.channel == 'own_blog' %}<p class="row"><label>Category</label>
+  {% if i.data.categories %}<select name="category">{% for c in i.data.categories %}<option {{ 'selected' if c == i.data.category }}>{{ c }}</option>{% endfor %}</select>
+  {% else %}<input name="category" value="{{ i.data.category or '' }}" placeholder="Category / tag">{% endif %}
+  <small>Picked by Claude; change before approving.</small></p>{% endif %}
+  <p><textarea name="body" rows="10">{{ i.body }}</textarea></p>
+  <div class="row">
+  {% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">{{ ('Approve & send' if is_mail else 'Approve & publish') if api[i.id] else 'Approve' }}</button>{% endif %}
+  {% if i.status=='failed' %}<button name="action" value="restore">Back to To approve</button>{% endif %}
+  <button name="action" value="save">Save edits</button>
+  {% if is_mail %}<button formaction="/p/{{p.id}}/content/{{i.id}}/test_email" title="Saves edits and sends a [TEST] copy to your own login email">Send test to me</button>{% endif %}
+  <button name="action" value="reject">Reject</button>
+  {% if api[i.id] and i.status in ('approved','scheduled','failed') %}<button formaction="/p/{{p.id}}/content/{{i.id}}/publish" class="primary">{{ 'Send now' if is_mail else 'Publish now' }}</button>{% endif %}
+  </div>
+  {% if not api[i.id] %}
+  <div class="row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+  <small><b>Post it yourself:</b></small>
+  <button type="button" onclick="navigator.clipboard.writeText(this.closest('form').body.value);this.textContent='Copied ✓'">Copy text</button>
+  {% if compose[i.id] %}<a class="btn" href="{{ compose[i.id] }}" target="_blank" rel="noopener" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('form').body.value)">Copy &amp; open {{ i.channel }}</a>{% endif %}
+  <input name="published_url" placeholder="then paste the live URL here" style="flex:1"><button name="action" value="published" class="primary">Mark published</button>
+  </div>{% endif %}
 {% endif %}
-</div></form></div>
-{% else %}<div class="card muted">Nothing waiting. Draft an article above or click "Draft" on an opportunity.</div>{% endfor %}
-{% from "_pager.html" import pager as pg %}{{ pg(pager, ('&show=' ~ show) if show else '') }}
+</form></div>
+{% else %}
+<div class="card muted">{% if view=='approve' %}Nothing to approve. Click "Draft" on an opportunity, or "+ New blog article".
+{% elif view=='published' %}Nothing published yet.{% else %}Nothing here.{% endif %}</div>
+{% endfor %}
+{{ pg(pager, '&view=' ~ view ~ ('&show=' ~ show if show else '') ~ ('&search=' ~ search|urlencode if search else '')) }}
+{% endif %}
 {% endblock %}

@@ -9,7 +9,7 @@
 <td><a href="{{ l.source_url }}" target="_blank" rel="noopener">{{ l.source_url[:70] }}</a>{% if l.anchor %}<br><small>anchor: "{{ l.anchor }}"</small>{% endif %}</td>
 <td><small>{{ projects.get(l.project_id) }} · {{ l.kind }}</small></td>
 <td><span class="chip {{ 'win' if l.status=='live' else ('warn' if l.status in ('lost','not_found') else '') }}">{{ l.status }}</span></td>
-<td><small>{{ 'dofollow' if l.dofollow else ('nofollow' if l.dofollow is not none else '–') }}{% if l.audit %} · {{ 'in content' if l.audit.in_content else 'boilerplate' }} · {{ l.audit.words }} words{% endif %}</small></td>
+<td><small>{{ 'dofollow' if l.dofollow else ('nofollow' if l.dofollow is not none else '–') }}{% if l.audit %} · {{ 'in content' if l.audit.in_content else 'nav/footer' }} · {{ l.audit.words }} words{% if l.audit.link_count %}<br>{{ l.audit.link_count }} link(s) to you, {{ l.audit.in_content_count }} in content · <a href="/p/{{ l.project_id }}/links?search={{ l.source_url|urlencode }}">details</a>{% endif %}{% endif %}</small></td>
 <td><small>{{ (l.audit.issues if l.audit else ['not checked yet'])|join('; ') }}</small></td>
 <td><small>{{ l.created_at.strftime('%b %d') }}</small></td></tr>
 {% else %}<tr><td colspan="7" class="muted">No published links yet.</td></tr>{% endfor %}</table></div>

@@ -2,7 +2,7 @@ from datetime import date
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import pipeline
 from app.classify import classify, score
@@ -580,3 +580,71 @@ def test_outreach_filters_import_and_queue_pages():
         assert "zmag.com" in html and "ymag.com" not in html
         assert "Draft pitch" in c.get(f"/p/{pid}/outreach?search=ymag").text
         assert c.get(f"/p/{pid}/queue?show=emails&page=2").status_code == 200
+
+
+PAGE = """<html><body><header><nav><a href="https://brand.com/">Brand</a></nav></header>
+<article><p>{words}</p><p>See <a href="https://www.brand.com/product/a">Tee A</a> and
+<a href="https://brand.com/collection/b" rel="nofollow">Collection B</a> and <a href="/about">Self</a>
+<a href="https://other.com/x">Other</a></p></article><footer><a href="https://brand.com/">Brand</a></footer></body></html>"""
+
+
+def test_linkaudit_finds_every_link_and_scores_best(monkeypatch):
+    import httpx
+
+    from app import linkaudit
+
+    class R:
+        status_code = 200
+        headers = {"content-type": "text/html"}
+        url = "https://blog.example.org/post"
+        text = PAGE.format(words="shirt " * 400)
+
+    monkeypatch.setattr(linkaudit, "assert_public_url", lambda u: None)
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: R())
+    a = linkaudit.analyse("https://blog.example.org/post", "brand.com", ["shirt"])
+    urls = [x["url"] for x in a["links"]]
+    assert a["link_count"] == 3 and "https://www.brand.com/product/a" in urls  # nav+footer homepage deduped
+    assert a["in_content_count"] == 2 and a["dofollow_count"] == 2
+    assert a["in_content"] and a["dofollow"] and a["anchor"] == "Tee A" and not a["internal"]
+    assert a["score"] >= 90
+
+
+def test_queue_views_restore_and_links_report():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.models import ContentItem, EarnedLink
+
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        c.post("/projects", data={"name": "Q", "domain": "q-test.com"})
+        pid = [x for x in c.get("/api/projects").json() if x["domain"] == "q-test.com"][0]["id"]
+        with session_scope() as s:
+            s.add(ContentItem(project_id=pid, channel="reddit", content_type="post", title="Post one", body="hi"))
+            s.flush()
+            cid = s.scalar(select(ContentItem).where(ContentItem.project_id == pid)).id
+        assert "Post one" in c.get(f"/p/{pid}/queue").text  # defaults to To approve
+        r = c.post(f"/p/{pid}/content/{cid}", data={"action": "published", "view": "approve",
+                                                    "published_url": "https://www.reddit.com/r/x/1"})
+        assert "view=approve" in str(r.url) and "moved=published" in str(r.url)
+        assert "moved to" in r.text
+        assert "Post one" in c.get(f"/p/{pid}/queue?view=published").text
+        c.post(f"/p/{pid}/content/{cid}", data={"action": "reject", "view": "published"})
+        assert "Restore" in c.get(f"/p/{pid}/queue?view=rejected").text
+        c.post(f"/p/{pid}/content/{cid}", data={"action": "restore", "view": "rejected"})
+        assert "Post one" in c.get(f"/p/{pid}/queue?view=approve").text
+        assert c.post(f"/p/{pid}/content/{cid}", data={"action": "published", "published_url": ""}).status_code == 400
+        # second paste of the same URL must not crash (unique constraint)
+        c.post(f"/p/{pid}/content/{cid}", data={"action": "published", "published_url": "https://www.reddit.com/r/x/1"})
+        c.post(f"/p/{pid}/links", data={"url": "https://mag.example.net/gifts", "kind": "outreach", "note": "editor"})
+        with session_scope() as s:
+            el = s.scalar(select(EarnedLink).where(EarnedLink.source_url == "https://mag.example.net/gifts"))
+            el.status, el.score = "live", 88
+            el.audit = {"link_count": 2, "dofollow_count": 2, "in_content_count": 2, "issues": [],
+                        "links": [{"url": "https://q-test.com/p/1", "anchor": "Tee", "dofollow": True, "in_content": True},
+                                  {"url": "https://q-test.com/c/2", "anchor": "Gifts", "dofollow": True, "in_content": True}]}
+            assert s.scalar(select(func.count()).select_from(EarnedLink).where(EarnedLink.project_id == pid)) == 2
+        html = c.get(f"/p/{pid}/links").text
+        assert "example.net" in html and "2 link(s) to you" in html
+        csv_text = c.get(f"/p/{pid}/links.csv").text
+        assert csv_text.count("https://mag.example.net/gifts") == 2 and "referring_domain" in csv_text

@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% from "_pager.html" import pager as pg %}{% block body %}
+<div class="stats">
+<div class="stat"><b>{{ summary.domains }}</b><span>Referring domains</span></div>
+<div class="stat"><b>{{ summary.pages }}</b><span>Pages linking</span></div>
+<div class="stat"><b>{{ summary.links }}</b><span>Links to your site</span></div>
+<div class="stat"><b>{{ summary.live }}</b><span>Live pages{% if summary.lost %} · {{ summary.lost }} lost{% endif %}</span></div>
+<div class="stat"><b>{{ summary.avg if summary.avg is not none else '–' }}</b><span>Avg quality /100</span></div>
+</div>
+{% if summary.internal %}<p><small>{{ summary.internal }} page(s) on your own site are listed but not counted above (internal links aren't backlinks).</small></p>{% endif %}
+
+<div class="row" style="margin:12px 0">
+<form method="get" class="row">
+<input name="search" value="{{ f.search }}" placeholder="Search page URL">
+<select name="status"><option value="">any status</option>{% for s in ['live','pending','lost','not_found'] %}<option {{ 'selected' if s==f.status }}>{{ s }}</option>{% endfor %}</select>
+<select name="kind"><option value="">any type</option>{% for k in kinds %}<option {{ 'selected' if k==f.kind }}>{{ k }}</option>{% endfor %}</select>
+{% if is_manager %}<select name="person"><option value="">anyone</option>{% for u in team %}<option value="{{ u.id }}" {{ 'selected' if u.id==f.person }}>{{ u.name or u.email }}</option>{% endfor %}</select>{% endif %}
+<button>Filter</button>{% if qs %}<a class="btn" href="/p/{{ p.id }}/links">Clear</a>{% endif %}</form>
+<span style="flex:1"></span>
+<a class="btn" href="/p/{{ p.id }}/links.csv?x=1{{ qs }}">Download CSV</a>
+{% if is_manager %}<form method="post" action="/p/{{ p.id }}/jobs/check_links" class="inline"><button>Re-check all</button></form>{% endif %}
+<details><summary class="btn primary">+ Add a link</summary>
+<form method="post" action="/p/{{ p.id }}/links" class="card" style="margin-top:6px;min-width:340px">
+<p><input name="url" placeholder="https://site.com/page-that-links-to-you" required style="width:100%"></p>
+<p class="row"><select name="kind"><option value="outreach">outreach (editor placed it)</option><option value="self_publish">profile / self-published</option><option value="pr">PR / press mention</option><option value="other">other</option></select>
+<input name="note" placeholder="Note (optional)" style="flex:1"></p>
+<button class="primary">Add &amp; analyse</button> <small>Credited to you. Every link to your site on that page is found and scored.</small></form></details>
+</div>
+
+<div class="card tbl"><table>
+<tr><th>Referring domain</th><th>Pages</th><th>Links</th><th>Best score</th><th>Follow</th></tr>
+{% for dom, els in groups %}
+{% set ns = namespace(n=0, df=0, best=none) %}{% for e in els %}{% set ns.n = ns.n + ((e.audit or {}).get('link_count') or 0) %}{% set ns.df = ns.df + ((e.audit or {}).get('dofollow_count') or 0) %}{% if e.score is not none and (ns.best is none or e.score > ns.best) %}{% set ns.best = e.score %}{% endif %}{% endfor %}
+<tr><td><b>{{ dom }}</b></td><td>{{ els|length }}</td><td>{{ ns.n }}</td>
+<td>{{ ns.best|int if ns.best is not none else '…' }}</td>
+<td><small>{{ ns.df }} dofollow · {{ ns.n - ns.df }} nofollow</small></td></tr>
+{% for el in els %}{% set a = el.audit or {} %}
+<tr><td colspan="5" style="padding-left:24px">
+<div class="row"><b style="color:{{ 'var(--win)' if (el.score or 0) >= 70 else ('var(--warn)' if (el.score or 0) >= 40 else 'var(--bad)') }}">{{ el.score|int if el.score is not none else '…' }}</b>
+<a href="{{ el.source_url }}" target="_blank" rel="noopener">{{ el.source_url[:90] }}</a>
+<span class="chip {{ 'win' if el.status=='live' else ('warn' if el.status in ('lost','not_found') else '') }}">{{ el.status }}</span>
+<small>{{ el.kind }} · {{ names.get(el.credited_to, '–') }} · {{ el.created_at.strftime('%b %d') }}{% if el.last_checked %} · checked {{ el.last_checked.strftime('%b %d') }}{% endif %}</small>
+{% if a.internal %}<span class="chip warn">own site</span>{% endif %}
+<span style="flex:1"></span>
+<form method="post" action="/p/{{ p.id }}/links/{{ el.id }}/recheck" class="inline"><button>Re-check</button></form>
+{% if is_manager %}<form method="post" action="/p/{{ p.id }}/links/{{ el.id }}/delete" class="inline" onsubmit="return confirm('Delete this earned link record?')"><button>✕</button></form>{% endif %}</div>
+{% if a.issues %}<small>{{ a.issues|join(' · ') }}</small><br>{% endif %}
+{% if a.note %}<small>Note: {{ a.note }}</small><br>{% endif %}
+{% if a.links %}<details><summary><small>{{ a.link_count }} link(s) to you on this page · {{ a.in_content_count }} in content · {{ a.dofollow_count }} dofollow</small></summary>
+<table>{% for ln in a.links|sort(attribute='in_content', reverse=true) %}<tr>
+<td><small>{{ ln.anchor }}</small></td><td><small><a href="{{ ln.url }}" target="_blank" rel="noopener">{{ ln.url.split('://')[-1][:70] }}</a></small></td>
+<td><small>{{ 'dofollow' if ln.dofollow else (ln.rel or 'nofollow') }}</small></td><td><small>{{ 'in content' if ln.in_content else 'nav/footer' }}</small></td></tr>{% endfor %}</table></details>{% endif %}
+</td></tr>{% endfor %}
+{% else %}<tr><td colspan="5" class="muted">No earned links yet. They appear here when you mark something published, or add one with "+ Add a link".</td></tr>{% endfor %}
+</table></div>
+{{ pg(pager, qs) }}
+<p><small>Page score: live + link found 35 · dofollow 20 · indexable 15 · in main content 15 · niche relevance 10 · 300+ words 3 · not a link farm 2. Scored by the page's best link.</small></p>
+{% endblock %}
