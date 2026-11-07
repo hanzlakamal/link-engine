@@ -214,7 +214,10 @@ def create_project(name: str = Form(...), domain: str = Form(...), stage: str = 
 @app.get("/p/{pid}", response_class=HTMLResponse)
 def project_page(pid: int, request: Request, db: Session = Depends(get_db)):
     p = _project(db, pid)
-    top = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.status.in_(("new", "approved")))
+    top_q = select(Opportunity).where(Opportunity.project_id == pid, Opportunity.status.in_(("new", "approved")))
+    if _builder_only_own(me(request)):
+        top_q = top_q.where(Opportunity.assigned_to == me(request).id)
+    top = db.scalars(top_q
                      .order_by(Opportunity.score.desc()).limit(10)).all()
     tasks = db.scalars(select(Task).where(Task.project_id == pid, Task.status != "done")
                        .order_by(Task.day, Task.id).limit(12)).all()
@@ -291,6 +294,20 @@ def apply_playbook(pid: int, name: str, start: str = Form(""), db: Session = Dep
     return _back(pid, "tasks")
 
 
+def _back_to_list(request: Request, pid: int) -> RedirectResponse:
+    from urllib.parse import urlparse
+
+    ref = urlparse(request.headers.get("referer", ""))
+    base = f"/p/{pid}/opportunities"
+    target = ref.path + (f"?{ref.query}" if ref.query else "") if ref.path == base else base
+    return RedirectResponse(target, status_code=303)
+
+
+def _builder_only_own(user: User) -> bool:
+    """Builders see and work only on opportunities assigned to them."""
+    return not authz.at_least(user, "manager")
+
+
 def _team(db: Session, pid: int) -> list[User]:
     return [u for u in db.scalars(select(User).where(User.active.is_(True)).order_by(User.name))
             if u.role in ("builder", "manager", "admin") and authz.can_see_project(u, pid)]
@@ -307,7 +324,7 @@ def auto_assign(pid: int, request: Request, db: Session = Depends(get_db)):
         o.assigned_to = people[i % len(people)].id
     audit(db, me(request).id, f"Auto-assigned {len(opps)} opportunities to {len(people)} people", pid)
     db.commit()
-    return RedirectResponse(f"/p/{pid}/opportunities", status_code=303)
+    return _back_to_list(request, pid)
 
 
 @app.get("/p/{pid}/opportunities", response_class=HTMLResponse)
@@ -315,7 +332,7 @@ def opportunities_page(pid: int, request: Request, kind: str = "", status: str =
                        db: Session = Depends(get_db)):
     p = _project(db, pid)
     q = select(Opportunity).where(Opportunity.project_id == pid)
-    if mine:
+    if mine or _builder_only_own(me(request)):
         q = q.where(Opportunity.assigned_to == me(request).id)
     if kind:
         q = q.where(Opportunity.kind == kind)
@@ -336,6 +353,8 @@ def opportunity_action(pid: int, oid: int, request: Request, action: str = Form(
     if not o or o.project_id != pid:
         raise HTTPException(404)
     u = me(request)
+    if _builder_only_own(u) and o.assigned_to != u.id:
+        raise HTTPException(403, "This opportunity isn't assigned to you")
     if action == "assign":
         if not authz.at_least(u, "manager") and user_id and int(user_id) != u.id:
             raise HTTPException(403, "Builders can only assign to themselves")
@@ -349,7 +368,7 @@ def opportunity_action(pid: int, oid: int, request: Request, action: str = Form(
     elif action in ("approved", "rejected", "snoozed", "done", "new"):
         o.status = action
     db.commit()
-    return RedirectResponse(f"/p/{pid}/opportunities", status_code=303)
+    return _back_to_list(request, pid)
 
 
 @app.get("/p/{pid}/queue", response_class=HTMLResponse)
@@ -595,8 +614,10 @@ def api_projects(db: Session = Depends(get_db)):
 
 
 @app.get("/api/projects/{pid}/opportunities")
-def api_opps(pid: int, kind: str = "", db: Session = Depends(get_db)):
+def api_opps(pid: int, request: Request, kind: str = "", db: Session = Depends(get_db)):
     q = select(Opportunity).where(Opportunity.project_id == pid)
+    if _builder_only_own(me(request)):
+        q = q.where(Opportunity.assigned_to == me(request).id)
     if kind:
         q = q.where(Opportunity.kind == kind)
     return [{"id": o.id, "kind": o.kind, "title": o.title, "domain": o.domain, "platform": o.platform,

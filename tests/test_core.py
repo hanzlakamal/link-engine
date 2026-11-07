@@ -386,3 +386,37 @@ def test_ai_and_worker_modules_import():
     from app import worker
 
     assert {"draft_for_opportunity", "profile_kit", "send_email", "check_inbox", "check_links"} <= set(worker.HANDLERS)
+
+
+def test_builder_sees_only_assigned_and_filters_survive():
+    from fastapi.testclient import TestClient
+
+    from app import auth as authz
+    from app.main import app
+    from app.models import ProjectMember, User
+
+    authz._fails.clear()
+    with session_scope() as s:
+        p = Project(name="P", domain="p.com")
+        s.add(p)
+        s.flush()
+        s.add(User(email="adm@test.com", name="A", role="admin", password_hash=authz.hash_password("admin-pass-1234")))
+        b = User(email="bb@test.com", name="B", role="builder", password_hash=authz.hash_password("builder-pass-123"))
+        s.add(b)
+        s.flush()
+        s.add(ProjectMember(user_id=b.id, project_id=p.id))
+        s.add(Opportunity(project_id=p.id, kind="gift_guide", key="mine.com", title="MINE", assigned_to=b.id))
+        s.add(Opportunity(project_id=p.id, kind="gift_guide", key="other.com", title="OTHER"))
+        s.flush()
+        pid, other = p.id, s.scalar(select(Opportunity).where(Opportunity.key == "other.com")).id
+    with TestClient(app) as a:
+        a.post("/login", data={"email": "adm@test.com", "password": "admin-pass-1234"})
+        r = a.post(f"/p/{pid}/opportunities/{other}", data={"action": "assign", "user_id": ""},
+                   headers={"referer": f"http://testserver/p/{pid}/opportunities?kind=gift_guide&status=new"})
+        assert "kind=gift_guide" in str(r.url)  # filter preserved after assigning
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "bb@test.com", "password": "builder-pass-123"})
+        html = c.get(f"/p/{pid}/opportunities").text
+        assert "MINE" in html and "OTHER" not in html
+        assert c.post(f"/p/{pid}/opportunities/{other}", data={"action": "draft"}).status_code == 403
+    authz._fails.clear()

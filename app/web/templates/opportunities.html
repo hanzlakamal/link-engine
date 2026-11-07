@@ -2,7 +2,8 @@
 <form class="row" method="get" style="margin-bottom:12px">
 <select name="kind"><option value="">All kinds</option>{% for k in kinds %}<option {{ 'selected' if k==kind }}>{{ k }}</option>{% endfor %}</select>
 <select name="status">{% for s in ['new','approved','in_progress','done','snoozed','rejected',''] %}<option value="{{s}}" {{ 'selected' if s==status }}>{{ s or 'any status' }}</option>{% endfor %}</select>
-<label><input type="checkbox" name="mine" value="1" {{ 'checked' if mine }}> only mine</label>
+{% if is_manager %}<label><input type="checkbox" name="mine" value="1" {{ 'checked' if mine }}> only mine</label>
+{% else %}<small>Showing opportunities assigned to you.</small>{% endif %}
 <button>Filter</button></form>
 {% if is_manager %}<form method="post" action="/p/{{p.id}}/opportunities/auto-assign" style="margin-bottom:12px"><button>Auto-assign unassigned (round-robin)</button></form>{% endif %}
 <div class="card tbl"><table>
