@@ -362,6 +362,8 @@ def opportunities_page(pid: int, request: Request, kind: str = "", status: str =
         q = q.where(Opportunity.assigned_to == me(request).id)
     if kind:
         q = q.where(Opportunity.kind == kind)
+    if status == "any":
+        status = ""
     if status:
         q = q.where(Opportunity.status == status)
     opps, pager = paginate(q.order_by(Opportunity.score.desc(), Opportunity.id), page, db)
@@ -404,13 +406,16 @@ def queue_page(pid: int, request: Request, db: Session = Depends(get_db)):
     items = db.scalars(select(ContentItem).where(ContentItem.project_id == pid,
                        ContentItem.status.in_(("pending_approval", "approved", "scheduled", "failed")))
                        .order_by(ContentItem.created_at.desc())).all()
-    kit_opps = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.kind == "self_publish",
-                          Opportunity.status.in_(("new", "approved", "in_progress")))
-                          .order_by(Opportunity.score.desc())).all()
-    kit_opps = [o for o in kit_opps if (o.data or {}).get("category") in
-                ("directory", "reviews", "deals", "affiliate", "profile", "marketplace", "web2")]
+    kit_all = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.kind == "self_publish",
+                         Opportunity.status.in_(("new", "approved", "in_progress", "done")))
+                         .order_by(Opportunity.score.desc())).all()
+    if _builder_only_own(me(request)):
+        kit_all = [o for o in kit_all if o.assigned_to == me(request).id]
+    kit_all = [o for o in kit_all if (o.data or {}).get("category") in ("directory", "reviews", "deals", "affiliate", "profile", "marketplace", "web2")]
+    kit_opps = [o for o in kit_all if o.status != "done"]
+    kit_done = [o for o in kit_all if o.status == "done"]
     return templates.TemplateResponse(request, "queue.html", {
-        "p": p, "items": items, "tab": "queue", "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps,
+        "p": p, "items": items, "tab": "queue", "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps, "kit_done": kit_done,
         "biz": {k: v for k, v in {**project_cfg(p)["business"],
                                   "business_name": project_cfg(p)["business"].get("business_name") or p.name}.items() if v},
         "compose": {i.id: _compose_url(db, i) for i in items},

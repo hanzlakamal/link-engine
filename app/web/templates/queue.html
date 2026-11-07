@@ -12,6 +12,10 @@
 {% else %}<p><small>Fill in <a href="/p/{{ p.id }}/settings">Settings &rarr; Business profile</a> once; it shows here for every directory form.</small></p>{% endif %}
 {% for o in kit_opps[:25] %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="done"><button>Done</button></form></div>{% endfor %}
+{% if kit_done %}<details style="margin-top:8px"><summary>Done ({{ kit_done|length }})</summary>
+{% for o in kit_done %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
+<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="new"><button title="Move back to the to-do list">Undo</button></form></div>{% endfor %}
+</details>{% endif %}
 </div></div>
 {% for i in items %}
 <div class="card" style="margin-bottom:12px">
