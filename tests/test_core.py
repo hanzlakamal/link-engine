@@ -489,3 +489,23 @@ def test_best_contact_prefers_named_person():
           N(id=2, email="amy.j@site.com", name="", status="new"),
           N(id=3, email="bob@site.com", name="Bob", status="unsubscribed")]
     assert best_contact(cs).id == 2
+
+
+def test_playbook_apply_is_idempotent():
+    from sqlalchemy import func, select
+
+    from app.db import SessionLocal, init_db
+    from app.models import Project, Task
+    from app.registry import playbooks
+    import app.playbooks  # noqa: F401
+    init_db()
+    s = SessionLocal()
+    p = Project(name="PB", domain="pb-idem.com", type="ecommerce")
+    s.add(p)
+    s.flush()
+    pb = playbooks.get("launch_72h")()
+    first = pb.apply(s, p)
+    s.flush()
+    assert first > 0 and pb.apply(s, p) == 0
+    assert s.scalar(select(func.count()).select_from(Task).where(Task.project_id == p.id)) == first
+    s.rollback()
