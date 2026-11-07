@@ -1,0 +1,102 @@
+"""Auto-generated settings form from config.DEFAULTS.
+
+Every key in DEFAULTS becomes a form field (bool -> checkbox, number -> number input,
+list -> comma text, dict -> nested group). Only values that differ from the defaults are
+stored as project overrides, so new defaults reach every project automatically.
+"""
+from __future__ import annotations
+
+import json
+
+from app.config import DEFAULTS
+
+SECTION_LABELS = {
+    "market": "Market", "discovery": "Discovery & API cost", "quality": "Quality filter & scoring",
+    "automation": "Automation", "limits": "Frequency limits (anti-spam)", "alerts": "Alerts",
+}
+HELP = {
+    "discovery.providers": "Order to try data sources, comma separated (ahrefs, dataforseo).",
+    "discovery.max_competitors": "Max competitors to auto-discover.",
+    "discovery.backlinks_per_competitor": "Rows pulled per competitor. Cost scales with this.",
+    "discovery.min_link_dr": "Skip linking sites below this DR (filtered at the provider, so not paid for).",
+    "discovery.include_traffic": "Fetch each linking site's traffic. Costs +10 Ahrefs units per row.",
+    "discovery.pull_own_backlinks": "Also pull links to our own site (spam is always filtered out).",
+    "discovery.refresh_days": "Don't re-pull a competitor more often than this.",
+    "discovery.monthly_unit_budget": "Ahrefs units per month for this project. Jobs stop when reached. 0 = no limit.",
+    "discovery.min_competitor_refdomains": "A competitor needs at least this many referring domains to be useful.",
+    "discovery.never_competitors": "Domains never treated as competitors.",
+    "quality.exclude_tlds": "Country domains outside your market. Empty for international brands.",
+    "quality.spam_tokens": "Reject linking domains containing any of these words.",
+    "quality.relevance_terms": "Words that make a link relevant to your niche.",
+    "quality.blocklist": "Domains to always skip.",
+    "automation.default_mode": "approve = review queue, auto = publish without review, off = disabled.",
+    "automation.channels": "Per-channel override, JSON, e.g. {\"pinterest\": \"auto\"}.",
+    "limits.default_per_day": "Daily cap for channels not listed below.",
+    "limits.jitter_minutes": "Random gap between actions, min,max minutes.",
+    "limits.business_hours": "Only act between these hours (start,end), local time.",
+    "limits.email_ramp.bounce_pause_pct": "Pause an inbox if bounces exceed this %.",
+}
+CHOICES = {"automation.default_mode": ["approve", "auto", "off"]}
+
+
+def _label(path: str) -> str:
+    return path.rsplit(".", 1)[-1].replace("_", " ").capitalize()
+
+
+def fields(effective: dict, defaults: dict = DEFAULTS, prefix: str = "") -> list[dict]:
+    out = []
+    for k, dv in defaults.items():
+        path = f"{prefix}{k}"
+        v = effective.get(k, dv)
+        f = {"path": path, "label": _label(path), "help": HELP.get(path, ""), "default": dv}
+        if isinstance(dv, dict) and dv:
+            out.append({**f, "type": "group", "children": fields(v if isinstance(v, dict) else {}, dv, path + ".")})
+            continue
+        if path in CHOICES:
+            f.update(type="select", value=v, choices=CHOICES[path])
+        elif isinstance(dv, bool):
+            f.update(type="bool", value=bool(v))
+        elif isinstance(dv, (int, float)):
+            f.update(type="number", value=v, step="any" if isinstance(dv, float) else "1")
+        elif isinstance(dv, list):
+            f.update(type="list", value=", ".join(str(x) for x in v))
+        elif isinstance(dv, dict):
+            f.update(type="json", value=json.dumps(v))
+        else:
+            f.update(type="text", value=v)
+        out.append(f)
+    return out
+
+
+def _coerce(dv, raw: str | None):
+    if isinstance(dv, bool):
+        return raw is not None
+    raw = (raw or "").strip()
+    if isinstance(dv, int) and not isinstance(dv, bool):
+        return int(float(raw or 0))
+    if isinstance(dv, float):
+        return float(raw or 0)
+    if isinstance(dv, list):
+        items = [x.strip() for x in raw.split(",") if x.strip()]
+        if dv and all(isinstance(x, (int, float)) for x in dv):
+            return [type(dv[0])(float(x)) for x in items]
+        return items
+    if isinstance(dv, dict):
+        return json.loads(raw or "{}")
+    return raw
+
+
+def parse(form, defaults: dict = DEFAULTS, prefix: str = "") -> dict:
+    """Form -> overrides (only values that differ from defaults)."""
+    out = {}
+    for k, dv in defaults.items():
+        path = f"{prefix}{k}"
+        if isinstance(dv, dict) and dv:
+            sub = parse(form, dv, path + ".")
+            if sub:
+                out[k] = sub
+            continue
+        v = _coerce(dv, form.get(path))
+        if v != dv:
+            out[k] = v
+    return out

@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% block body %}
+<h2 style="margin-top:0">Global settings</h2>
+{% if saved %}<div class="banner" style="border-color:var(--win)">Saved.</div>{% endif %}
+<form method="post" action="/settings"><div class="grid">
+<div class="card"><h3>API keys</h3>
+<small>Stored encrypted in the database and used instead of environment variables. Leave a field empty to keep the current value.</small>
+{% for k,label in secrets %}<p><label>{{ label }}</label> <span class="chip {{ 'win' if status[k] else 'warn' }}">{{ status[k] }}</span><br>
+<input type="password" name="{{ k }}" autocomplete="off" placeholder="{{ 'Replace…' if status[k] else 'Paste key' }}" style="width:100%">
+<label class="muted"><input type="checkbox" name="clear_{{ k }}"> clear saved value</label></p>{% endfor %}
+<p><button class="primary">Save</button></p></div>
+<div class="card"><h3>AI models</h3>
+<p><label>Default (high volume)</label><br><input name="model_default" value="{{ s.model_default }}" style="width:100%"></p>
+<p><label>Premium (PR pitches, pillar articles, brand voice)</label><br><input name="model_premium" value="{{ s.model_premium }}" style="width:100%"></p>
+<h3>Admin password</h3>
+<p><input type="password" name="admin_password" autocomplete="new-password" placeholder="New password (leave empty to keep)" style="width:100%"><br><small>You'll be logged out after changing it.</small></p>
+<p><button class="primary">Save</button></p></div>
+</div></form>{% endblock %}

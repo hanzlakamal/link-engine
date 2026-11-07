@@ -40,7 +40,7 @@ def complete(prompt: str, *, system: str = "", premium: bool = False, max_tokens
 def _json(text: str) -> dict:
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
-        raise ValueError("Model did not return JSON")
+        raise ValueError(f"Model did not return JSON (got {len(text)} chars: {text[:120]!r})")
     return json.loads(m.group(0))
 
 
@@ -66,6 +66,7 @@ Return ONLY JSON with keys:
   do_words (list), dont_words (list), signature_phrases (list), products_to_feature (list),
   content_pillars (list), example_social_post, example_quora_answer_opening, cta_style,
   compliance_notes (list, e.g. FTC disclosure for gifted creators).
+Keep every list to at most 8 short items. No markdown, no commentary: the JSON object only.
 
 WEBSITE TEXT:
 {text}
@@ -76,7 +77,7 @@ def build_brand_voice(domain: str) -> dict:
     text = fetch_site_text(domain)
     if not text:
         raise RuntimeError(f"Could not fetch any pages from {domain}")
-    return _json(complete(BRAND_VOICE_PROMPT.format(domain=domain, text=text[:20000]), premium=True, max_tokens=2500))
+    return _json(complete(BRAND_VOICE_PROMPT.format(domain=domain, text=text[:20000]), premium=True, max_tokens=6000))
 
 
 CONTENT_PROMPT = """Write a {content_type} for {platform} on behalf of {brand} ({domain}).

@@ -21,7 +21,6 @@ from app.registry import load_plugins
 
 log = logging.getLogger("worker")
 HANDLERS: dict = {}
-MAX_ATTEMPTS = 3
 
 
 def job(name: str):
@@ -104,17 +103,17 @@ def _draft(s, project, payload):
 
 
 # ---------------------------------------------------------------- loop
-def _requeue_stale(s: Session) -> None:
-    """Jobs left 'running' by a restart/redeploy get retried after 30 min."""
+def _fail_stale(s: Session) -> None:
+    """Jobs left 'running' by a restart are marked failed (never re-run automatically)."""
     cutoff = utcnow() - timedelta(minutes=30)
     for j in s.scalars(select(Job).where(Job.status == "running", Job.updated_at < cutoff)):
-        j.status = "queued" if j.attempts < MAX_ATTEMPTS else "failed"
-        j.error = (j.error + "\ninterrupted (worker restart)").strip()
+        j.status = "failed"
+        j.error = (j.error + "\ninterrupted (worker restart) - run it again from the dashboard").strip()
     s.commit()
 
 
 def _claim(s: Session) -> Job | None:
-    _requeue_stale(s)
+    _fail_stale(s)
     q = (select(Job).where(Job.status == "queued", Job.run_at <= utcnow())
          .order_by(Job.run_at).limit(1))
     if engine.dialect.name == "postgresql":
@@ -144,7 +143,7 @@ def run_one() -> bool:
             s.rollback()
             j = s.get(Job, j.id)
             j.error = f"{e}\n{traceback.format_exc()[-2000:]}"
-            if j.attempts < MAX_ATTEMPTS:
+            if j.attempts < get_settings().job_max_attempts:
                 j.status, j.run_at = "queued", utcnow() + timedelta(minutes=2 ** j.attempts)
             else:
                 j.status = "failed"
@@ -160,11 +159,10 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     load_plugins()
     init_db()
-    poll = get_settings().worker_poll_seconds
     log.info("worker started; handlers=%s", sorted(HANDLERS))
     while True:
         if not run_one():
-            time.sleep(poll)
+            time.sleep(get_settings().worker_poll_seconds)
 
 
 if __name__ == "__main__":

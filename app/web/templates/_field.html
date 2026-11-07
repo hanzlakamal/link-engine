@@ -1,0 +1,16 @@
+{% macro render(f) %}
+{% if f.type == 'group' %}
+<fieldset style="border:1px solid var(--line);border-radius:8px;margin:8px 0;padding:8px 12px"><legend class="muted">{{ f.label }}</legend>
+{% for c in f.children %}{{ render(c) }}{% endfor %}</fieldset>
+{% else %}
+<div style="margin:8px 0">
+<label style="display:block;font-weight:500">{{ f.label }}{% if f.value != f.default and f.type not in ('list','json') %} <span class="chip action">custom</span>{% endif %}</label>
+{% if f.type == 'bool' %}<input type="checkbox" name="{{ f.path }}" {{ 'checked' if f.value }}>
+{% elif f.type == 'select' %}<select name="{{ f.path }}">{% for c in f.choices %}<option {{ 'selected' if c == f.value }}>{{ c }}</option>{% endfor %}</select>
+{% elif f.type == 'number' %}<input type="number" step="{{ f.step }}" name="{{ f.path }}" value="{{ f.value }}">
+{% elif f.type == 'json' %}<input name="{{ f.path }}" value="{{ f.value }}" style="width:100%">
+{% else %}<input name="{{ f.path }}" value="{{ f.value }}" style="width:100%">{% endif %}
+{% if f.help %}<br><small>{{ f.help }}</small>{% endif %}
+</div>
+{% endif %}
+{% endmacro %}

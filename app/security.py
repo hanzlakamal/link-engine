@@ -6,11 +6,11 @@ import hashlib
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from app.config import get_settings
+from app.config import base_settings
 
 
 def _fernet() -> Fernet:
-    key = hashlib.sha256(get_settings().secret_key.encode()).digest()
+    key = hashlib.sha256(base_settings().secret_key.encode()).digest()
     return Fernet(base64.urlsafe_b64encode(key))
 
 

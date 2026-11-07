@@ -7,6 +7,7 @@ and can override it from the settings page without a migration.
 from __future__ import annotations
 
 import copy
+import time
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,10 +30,44 @@ class Settings(BaseSettings):
     model_premium: str = "claude-opus-5-5"
 
     worker_poll_seconds: int = 5
+    job_max_attempts: int = 1  # 1 = never auto-retry; failed jobs wait for a manual re-run
+
+
+# Editable from the UI (Global settings). DATABASE_URL / SECRET_KEY stay env-only (bootstrap).
+SECRET_KEYS = ("anthropic_api_key", "ahrefs_api_key", "dataforseo_login", "dataforseo_password", "admin_password")
+PLAIN_KEYS = ("model_default", "model_premium", "worker_poll_seconds", "job_max_attempts")
+_cache: dict = {"t": 0.0, "v": None}
+
+
+def invalidate_settings() -> None:
+    _cache["v"] = None
+
+
+def get_settings() -> Settings:
+    """Env settings overlaid with values saved in the UI (cached 15s)."""
+    now = time.monotonic()
+    if _cache["v"] is not None and now - _cache["t"] < 15:
+        return _cache["v"]
+    s = base_settings().model_copy()
+    try:
+        from app.db import SessionLocal
+        from app.models import AppSetting
+        from app.security import decrypt
+
+        with SessionLocal() as db:
+            for row in db.query(AppSetting).all():
+                if row.key in SECRET_KEYS and row.value:
+                    setattr(s, row.key, decrypt(row.value))
+                elif row.key in PLAIN_KEYS and row.value != "":
+                    setattr(s, row.key, type(getattr(s, row.key))(row.value))
+    except Exception:  # noqa: BLE001  (table missing on first boot, etc.)
+        pass
+    _cache.update(t=now, v=s)
+    return s
 
 
 @lru_cache
-def get_settings() -> Settings:
+def base_settings() -> Settings:
     s = Settings()
     # Railway/Heroku style URLs use postgres:// ; SQLAlchemy + psycopg3 wants postgresql+psycopg://
     if s.database_url.startswith("postgres://"):

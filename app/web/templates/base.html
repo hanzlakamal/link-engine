@@ -30,7 +30,7 @@ form.inline{display:inline}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:
 </style>
 </head>
 <body>
-<header><a class="brand" href="/">Link Engine</a>{% block crumbs %}{% endblock %}<span style="flex:1"></span><a href="/logout" class="muted">Log out</a></header>
+<header><a class="brand" href="/">Link Engine</a>{% block crumbs %}{% endblock %}<span style="flex:1"></span><a href="/settings">Global settings</a> <a href="/logout" class="muted">Log out</a></header>
 <main>
 {% if p is defined and p %}
 <h2 style="margin:0">{{ p.name }} <small>{{ p.domain }} · {{ p.stage }}</small></h2>

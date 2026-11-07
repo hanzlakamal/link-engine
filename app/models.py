@@ -210,6 +210,15 @@ class ApiUsage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class AppSetting(Base):
+    """Global settings edited in the UI. Secrets are encrypted (app/security.py)."""
+
+    __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String(60), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class ActionLog(Base):
     """One row per rate-limited action (post, email, comment) -> app/limits.py counts these."""
 

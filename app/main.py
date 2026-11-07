@@ -22,11 +22,13 @@ from sqlalchemy.orm import Session
 from app import pipeline
 from app.channels import get_channel
 from app.classify import domain_of
-from app.config import DEFAULTS, get_settings, merged_settings
+from app.config import DEFAULTS, PLAIN_KEYS, SECRET_KEYS, get_settings, invalidate_settings, merged_settings
 from app.db import get_db, init_db
-from app.models import (ApiUsage, Competitor, ContentItem, EarnedLink, Event, Job, Opportunity, Project, Task,
+from app.models import (ApiUsage, AppSetting, Competitor, ContentItem, EarnedLink, Event, Job, Opportunity, Project, Task,
                         utcnow)
 from app.registry import load_plugins, playbooks, providers, strategies
+from app.security import encrypt
+from app.web import forms
 from app.worker import enqueue
 
 load_plugins()
@@ -304,22 +306,67 @@ def task_action(pid: int, tid: int, status: str = Form(...), db: Session = Depen
 @app.get("/p/{pid}/settings", response_class=HTMLResponse)
 def settings_page(pid: int, request: Request, saved: int = 0, error: str = "", db: Session = Depends(get_db)):
     p = _project(db, pid)
+    eff = merged_settings(p.settings)
+    used = pipeline.over_budget(db, p, eff)[1]
+    advanced = {k: v for k, v in (p.settings or {}).items() if k not in DEFAULTS}
     return templates.TemplateResponse(request, "settings.html", {
-        "p": p, "effective": merged_settings(p.settings), "defaults": DEFAULTS, "saved": saved, "error": error,
-        "tab": "settings"})
+        "p": p, "effective": eff, "fields": forms.fields(eff), "labels": forms.SECTION_LABELS, "advanced": advanced,
+        "used": used, "saved": saved, "error": error, "tab": "settings"})
 
 
 @app.post("/p/{pid}/settings")
-def save_settings(pid: int, overrides: str = Form("{}"), brand_voice: str = Form("{}"), stage: str = Form(...),
-                  name: str = Form(...), db: Session = Depends(get_db)):
+async def save_settings(pid: int, request: Request, db: Session = Depends(get_db)):
     p = _project(db, pid)
+    form = await request.form()
     try:
-        p.settings, p.brand_voice = json.loads(overrides or "{}"), json.loads(brand_voice or "{}")
-    except json.JSONDecodeError as e:
-        return RedirectResponse(f"/p/{pid}/settings?error={e}", status_code=303)
-    p.stage, p.name, p.updated_at = stage, name, utcnow()
+        overrides = forms.parse(form)
+        overrides.update(json.loads(form.get("advanced") or "{}"))
+        voice = json.loads(form.get("brand_voice") or "{}")
+    except (ValueError, json.JSONDecodeError) as e:
+        return RedirectResponse(f"/p/{pid}/settings?error={str(e)[:120]}", status_code=303)
+    p.settings, p.brand_voice = overrides, voice
+    p.name = form.get("name") or p.name
+    p.stage = form.get("stage") or p.stage
+    p.client, p.niche, p.updated_at = form.get("client", ""), form.get("niche", ""), utcnow()
     db.commit()
     return RedirectResponse(f"/p/{pid}/settings?saved=1", status_code=303)
+
+
+SECRET_LABELS = [("anthropic_api_key", "Anthropic API key"), ("ahrefs_api_key", "Ahrefs API key"),
+                 ("dataforseo_login", "DataForSEO login"), ("dataforseo_password", "DataForSEO password")]
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def app_settings_page(request: Request, saved: int = 0, db: Session = Depends(get_db)):
+    s = get_settings()
+    stored = {r.key for r in db.scalars(select(AppSetting)) if r.value}
+    status = {k: ("saved in app" if k in stored else ("from env" if getattr(s, k) else "")) for k, _ in SECRET_LABELS}
+    return templates.TemplateResponse(request, "app_settings.html", {
+        "s": s, "secrets": SECRET_LABELS, "status": status, "saved": saved})
+
+
+@app.post("/settings")
+async def app_settings_save(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+
+    def put(key: str, value: str):
+        row = db.get(AppSetting, key) or AppSetting(key=key)
+        row.value = value
+        db.add(row)
+
+    for k in SECRET_KEYS:
+        if form.get(f"clear_{k}"):
+            put(k, "")
+        elif (form.get(k) or "").strip():
+            put(k, encrypt(form.get(k).strip()))
+    for k in PLAIN_KEYS:
+        if k in form:
+            put(k, str(form.get(k)).strip())
+    db.commit()
+    invalidate_settings()
+    if (form.get("admin_password") or "").strip():
+        return RedirectResponse("/login", status_code=303)
+    return RedirectResponse("/settings?saved=1", status_code=303)
 
 
 # ------------------------------------------------------------------ JSON API

@@ -1,15 +1,21 @@
-{% extends "base.html" %}{% block body %}
+{% extends "base.html" %}{% from "_field.html" import render %}{% block body %}
 {% if saved %}<div class="banner" style="border-color:var(--win)">Saved.</div>{% endif %}
-{% if error %}<div class="banner" style="border-color:var(--bad)">Invalid JSON: {{ error }}</div>{% endif %}
+{% if error %}<div class="banner" style="border-color:var(--bad)">Not saved: {{ error }}</div>{% endif %}
 <form method="post" action="/p/{{p.id}}/settings">
 <div class="grid">
 <div class="card"><h3>Project</h3>
-<p><input name="name" value="{{ p.name }}" style="width:100%"></p>
-<p><select name="stage"><option value="launch" {{ 'selected' if p.stage=='launch' }}>Launch (new site)</option><option value="growth" {{ 'selected' if p.stage=='growth' }}>Growth (established)</option></select></p>
-<h3>Overrides</h3><small>Only what differs from defaults. Example: {"limits":{"per_channel_per_day":{"reddit":1}}}</small>
-<textarea name="overrides" rows="12">{{ p.settings|tojson_pretty }}</textarea>
-<h3>Brand voice</h3><small>Auto-built from the site ("Build brand voice" on Overview); edit freely.</small>
-<textarea name="brand_voice" rows="14">{{ p.brand_voice|tojson_pretty }}</textarea>
-<p><button class="primary">Save</button></p></div>
-<div class="card"><h3>Effective settings (defaults + overrides)</h3><textarea rows="40" readonly>{{ effective|tojson_pretty }}</textarea></div>
+<p><label>Name</label><br><input name="name" value="{{ p.name }}" style="width:100%"></p>
+<p><label>Stage</label><br><select name="stage"><option value="launch" {{ 'selected' if p.stage=='launch' }}>Launch (new site)</option><option value="growth" {{ 'selected' if p.stage=='growth' }}>Growth (established)</option></select></p>
+<p><label>Client</label><br><input name="client" value="{{ p.client }}" style="width:100%"></p>
+<p><label>Niche</label><br><input name="niche" value="{{ p.niche }}" style="width:100%"></p>
+<p><small>Usage this month: <b>{{ '%.0f'|format(used) }}</b> Ahrefs units of {{ effective.discovery.monthly_unit_budget or 'unlimited' }}.</small></p>
+<h3>Brand voice</h3><small>Built by "Build brand voice" on Overview; edit freely (JSON).</small>
+<textarea name="brand_voice" rows="16">{{ p.brand_voice|tojson_pretty }}</textarea>
+<h3>Advanced (JSON)</h3><small>Extra keys not covered by the form, e.g. catalog_extra, strategies.</small>
+<textarea name="advanced" rows="5">{{ advanced|tojson_pretty }}</textarea>
+<p><button class="primary">Save</button> <small>Only values different from defaults are stored.</small></p>
+</div>
+{% for sec in fields %}<div class="card"><h3>{{ labels.get(sec.path, sec.label) }}</h3>
+{% if sec.type == 'group' %}{% for c in sec.children %}{{ render(c) }}{% endfor %}{% else %}{{ render(sec) }}{% endif %}
+<p><button class="primary">Save</button></p></div>{% endfor %}
 </div></form>{% endblock %}

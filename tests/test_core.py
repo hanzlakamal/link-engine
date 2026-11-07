@@ -233,3 +233,46 @@ def test_marketplaces_are_not_competitors():
     cfg = merged_settings({})
     assert is_platform_not_competitor("amazon.com", cfg) and is_platform_not_competitor("etsy.com", cfg)
     assert not is_platform_not_competitor("threadheads.com", cfg)
+
+
+def test_settings_form_roundtrip():
+    from app.config import DEFAULTS
+    from app.web import forms
+
+    # Unchanged form -> no overrides stored
+    flat = {}
+
+    def walk(fs):
+        for f in fs:
+            if f["type"] == "group":
+                walk(f["children"])
+            elif f["type"] != "bool" or f["value"]:
+                flat[f["path"]] = "on" if f["type"] == "bool" else str(f["value"])
+    walk(forms.fields(merged_settings({})))
+    assert forms.parse(flat) == {}
+    flat["discovery.monthly_unit_budget"] = "5000"
+    flat.pop("discovery.pull_own_backlinks")
+    flat["quality.exclude_tlds"] = ""
+    assert forms.parse(flat) == {"discovery": {"monthly_unit_budget": 5000, "pull_own_backlinks": False},
+                                 "quality": {"exclude_tlds": []}}
+    assert DEFAULTS["discovery"]["monthly_unit_budget"] == 10000
+
+
+def test_global_settings_ui_overrides_env():
+    from fastapi.testclient import TestClient
+
+    from app.config import get_settings, invalidate_settings
+    from app.main import app
+
+    with TestClient(app) as c:
+        c.post("/login", data={"password": "pw"})
+        assert c.get("/settings").status_code == 200
+        c.post("/settings", data={"ahrefs_api_key": "ui-key-123", "model_default": "claude-haiku-5-5",
+                                  "worker_poll_seconds": "7", "job_max_attempts": "1"})
+        invalidate_settings()
+        s = get_settings()
+        assert (s.ahrefs_api_key, s.model_default, s.worker_poll_seconds) == ("ui-key-123", "claude-haiku-5-5", 7)
+        assert "ui-key-123" not in c.get("/settings").text  # never echoed back
+        r = c.post("/p/0/settings", data={})
+        assert r.status_code == 404
+    invalidate_settings()
