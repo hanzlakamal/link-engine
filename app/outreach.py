@@ -116,12 +116,16 @@ def best_contact(contacts):
     return sorted(ok, key=lambda c: (is_generic(c.email), not c.name, c.id))[0] if ok else None
 
 
-def send_email(s: Session, project: Project, item: ContentItem) -> tuple[bool, str, str]:
+def send_email(s: Session, project: Project, item: ContentItem, test_to: str = "") -> tuple[bool, str, str]:
     """Returns (ok, message, message_id). Caller handles limits/approval state."""
     cfg = project_cfg(project)
     st = get_settings()
     snd = cfg["sender"]
     contact = s.get(Contact, item.contact_id) if item.contact_id else None
+    if test_to:  # preview copy to a teammate; never touches the real contact
+        from types import SimpleNamespace
+
+        contact = SimpleNamespace(email=test_to, name="", status="new", unsub_token="test-preview")
     if contact is None:
         return False, "No contact on this email. Click 'Find contact' on the opportunity first.", ""
     if contact.status in ("unsubscribed", "bounced"):
@@ -139,7 +143,7 @@ def send_email(s: Session, project: Project, item: ContentItem) -> tuple[bool, s
     payload = {
         "sender": {"name": snd.get("name") or project.name, "email": snd["email"]},
         "to": [{"email": contact.email, "name": contact.name or contact.email}],
-        "subject": item.title, "htmlContent": html, "textContent": text,
+        "subject": ("[TEST] " if test_to else "") + item.title, "htmlContent": html, "textContent": text,
         "headers": {"List-Unsubscribe": f"<{unsub}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"},
     }
     if snd.get("reply_to"):
@@ -159,7 +163,7 @@ def due_followups(s: Session, project: Project) -> list[ContentItem]:
         return []
     cutoff = utcnow() - timedelta(days=ramp.get("followup_days", 5))
     out = []
-    for it in s.scalars(select(ContentItem).where(ContentItem.project_id == project.id, ContentItem.channel == "email",
+    for it in s.scalars(select(ContentItem).where(ContentItem.project_id == project.id, ContentItem.channel.in_(("email", "outreach_email")),
                         ContentItem.status == "published", ContentItem.updated_at <= cutoff)):
         d = it.data or {}
         if d.get("step", 1) > ramp["followups"] or d.get("followed_up"):

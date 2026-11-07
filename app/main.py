@@ -458,6 +458,25 @@ def new_article(pid: int, request: Request, topic: str = Form(...), target_url: 
     return _back(pid, "queue")
 
 
+@app.post("/p/{pid}/content/{cid}/test_email")
+def test_email(pid: int, cid: int, request: Request, title: str = Form(""), body: str = Form(""),
+               db: Session = Depends(get_db)):
+    """Send a [TEST] copy of an email draft to the logged-in user. Saves edits first; the real contact is untouched."""
+    from app import outreach
+
+    c = db.get(ContentItem, cid)
+    if not c or c.project_id != pid or c.channel not in ("outreach_email", "email"):
+        raise HTTPException(404)
+    u = me(request)
+    if title or body:
+        c.title, c.body = title or c.title, body or c.body
+    ok, msg, _ = outreach.send_email(db, _project(db, pid), c, test_to=u.email)
+    db.add(Event(project_id=pid, user_id=u.id, level="info" if ok else "warn",
+                 message=f"Test email to {u.email}: " + ("sent, check your inbox" if ok else msg)))
+    db.commit()
+    return _back(pid, "queue")
+
+
 @app.post("/p/{pid}/content/{cid}/publish")
 def republish(pid: int, cid: int, request: Request, db: Session = Depends(get_db)):
     c = db.get(ContentItem, cid)
@@ -574,7 +593,7 @@ def content_action(pid: int, cid: int, request: Request, action: str = Form(...)
             raise HTTPException(400, "Live URL must start with https://")
         c.status, c.published_url, c.published_by = "published", published_url, u.id
         db.add(EarnedLink(project_id=pid, source_url=published_url, target_url=c.target_url,
-                          kind="self_publish" if c.channel != "email" else "outreach", status="pending",
+                          kind="outreach" if c.channel in ("email", "outreach_email") else "self_publish", status="pending",
                           content_item_id=c.id, credited_to=u.id))
         db.flush()
         el = db.scalar(select(EarnedLink).where(EarnedLink.project_id == pid, EarnedLink.source_url == published_url))
