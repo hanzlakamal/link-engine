@@ -111,12 +111,18 @@ def _draft(s, project, payload):
 def _draft_article(s, project, payload):
     from app import ai
 
+    from app.channels import HUB_PLATFORMS, hub_categories
+
+    hub = s.scalar(select(PlatformAccount).where(PlatformAccount.project_id == project.id,
+                   PlatformAccount.platform.in_(HUB_PLATFORMS), PlatformAccount.active.is_(True)))
+    cats = hub_categories(hub) if hub else []
     out = ai.draft_content(brand=project.name, domain=project.domain, voice=project.brand_voice, platform="own_blog",
                            content_type="blog article", goal=payload["topic"], target_url=payload.get("target_url", ""),
-                           premium=True, sender=project_cfg(project)["sender"])
+                           premium=True, sender=project_cfg(project)["sender"], categories=cats or None)
     s.add(ContentItem(project_id=project.id, channel="own_blog", content_type="article", title=out.get("title", ""),
                       body=out.get("body", ""), target_url=payload.get("target_url", ""), created_by=payload.get("user_id"),
-                      data={"notes": out.get("notes_for_reviewer", ""), "topic": payload["topic"]}))
+                      data={"notes": out.get("notes_for_reviewer", ""), "topic": payload["topic"],
+                            "category": out.get("category", ""), "categories": cats}))
     pipeline.event(s, project.id, f"Blog article draft ready: {out.get('title', '')}", "action")
     return {"ok": True}
 
@@ -153,7 +159,7 @@ def _publish(s, project, payload):
     if item.channel != "own_blog":  # own blog is the hub, not a backlink
         s.add(EarnedLink(project_id=project.id, source_url=res.url, target_url=item.target_url, kind="self_publish",
                          status="pending", content_item_id=item.id, credited_to=payload.get("user_id")))
-    pipeline.event(s, project.id, f"Published on {item.channel}: {res.url}", "win", user_id=payload.get("user_id"))
+    pipeline.event(s, project.id, f"{item.channel}: {res.message} {res.url}", "win", user_id=payload.get("user_id"))
     return {"ok": True, "url": res.url}
 
 

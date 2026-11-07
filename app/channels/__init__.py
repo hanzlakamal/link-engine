@@ -94,7 +94,8 @@ class OwnBlog(Channel):
                 want = pub.get("shopify_blog_handle")
                 blog = next((b for b in blogs.json()["blogs"] if b["handle"] == want), blogs.json()["blogs"][0])
                 r = c.post(f"{site}/admin/api/{ver}/blogs/{blog['id']}/articles.json", headers=h,
-                           json={"article": {"title": item.title, "body_html": item.body, "published": live}})
+                           json={"article": {"title": item.title, "body_html": item.body, "published": live,
+                                             "tags": (item.data or {}).get("category", "")}})
                 if r.status_code >= 300:
                     return PublishResult(False, message=f"Shopify {r.status_code}: {r.text[:200]}")
                 a = r.json()["article"]
@@ -102,16 +103,36 @@ class OwnBlog(Channel):
                 return PublishResult(True, url=f"{public}/blogs/{blog['handle']}/{a['handle']}", message=f"Shopify article {a['id']}")
             auth = (creds.get("username", ""), creds.get("password", ""))
             payload = {"title": item.title, "content": item.body, "status": "publish" if live else "draft"}
-            cat = pub.get("own_blog_category")
+            cat = (item.data or {}).get("category") or pub.get("own_blog_category")
             if cat:
-                r = c.get(f"{site}/wp-json/wp/v2/categories", params={"search": cat}, auth=auth)
+                r = c.get(f"{site}/wp-json/wp/v2/categories", params={"search": cat, "per_page": 20}, auth=auth)
                 if r.status_code == 200 and r.json():
-                    payload["categories"] = [r.json()[0]["id"]]
+                    exact = [x for x in r.json() if x["name"].lower() == cat.lower()]
+                    payload["categories"] = [(exact or r.json())[0]["id"]]
             r = c.post(f"{site}/wp-json/wp/v2/posts", json=payload, auth=auth)
         if r.status_code >= 300:
             return PublishResult(False, message=f"WordPress {r.status_code}: {r.text[:200]}")
         d = r.json()
-        return PublishResult(True, url=d.get("link", ""), message=f"WordPress post {d.get('id')} ({d.get('status')})")
+        state = "Published" if d.get("status") == "publish" else "Draft created"
+        return PublishResult(True, url=d.get("link", ""), message=f"{state} (WordPress post {d.get('id')})")
+
+
+def hub_categories(account) -> list[str]:
+    """Category names from the client's blog (public endpoint), so Claude can file each article."""
+    import httpx
+
+    from app.auth import assert_public_url
+
+    site = (account.data or {}).get("site_url", "").rstrip("/")
+    try:
+        assert_public_url(site)
+        if account.platform == "wordpress_hub":
+            r = httpx.get(f"{site}/wp-json/wp/v2/categories", params={"per_page": 100, "_fields": "name"}, timeout=20)
+            if r.status_code == 200:
+                return [c["name"] for c in r.json() if c["name"].lower() != "uncategorized"]
+    except (ValueError, httpx.HTTPError, KeyError, TypeError):
+        pass
+    return []  # Shopify blogs use tags; Claude's category is sent as a tag
 
 
 def test_hub(account) -> str:

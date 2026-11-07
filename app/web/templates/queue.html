@@ -20,6 +20,10 @@
 {% if i.data.error %}<small style="color:var(--bad)">{{ i.data.error }}</small>{% endif %}
 {% if i.data.notes %}<small>Reviewer note: {{ i.data.notes }}</small>{% endif %}</div>
 <p><input name="title" value="{{ i.title }}" style="width:100%"></p>
+{% if i.channel == 'own_blog' %}<p class="row"><label>Category</label>
+{% if i.data.categories %}<select name="category">{% for c in i.data.categories %}<option {{ 'selected' if c == i.data.category }}>{{ c }}</option>{% endfor %}</select>
+{% else %}<input name="category" value="{{ i.data.category or '' }}" placeholder="Category / tag">{% endif %}
+<small>Picked by Claude; change before approving.</small></p>{% endif %}
 <p><textarea name="body" rows="10">{{ i.body }}</textarea></p>
 <div class="row">
 {% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">{{ 'Approve & publish' if api[i.id] else 'Approve' }}</button>{% endif %}

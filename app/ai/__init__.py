@@ -155,7 +155,8 @@ def profile_kit(brand: str, domain: str, voice: dict) -> dict:
 
 
 def draft_content(*, brand: str, domain: str, voice: dict, platform: str, content_type: str, goal: str,
-                  target_url: str = "", premium: bool = False, sender: dict | None = None) -> dict:
+                  target_url: str = "", premium: bool = False, sender: dict | None = None,
+                  categories: list[str] | None = None) -> dict:
     sd = sender or {}
     sender_txt = sd.get("signature") or ", ".join(x for x in (sd.get("name"), sd.get("title"), brand) if x)
     prompt = CONTENT_PROMPT.format(sender=sender_txt or f"The {brand} team",
@@ -164,7 +165,11 @@ def draft_content(*, brand: str, domain: str, voice: dict, platform: str, conten
         rules=PLATFORM_RULES.get(platform, "Follow the platform's norms; never spammy."),
         target_url=target_url or f"https://{domain}",
     )
-    return complete_json(prompt, {"title": "str", "body": "str", "notes_for_reviewer": "str"}, premium=premium, max_tokens=6000 if platform == 'own_blog' else 3000)
+    fields = {"title": "str", "body": "str", "notes_for_reviewer": "str"}
+    if categories:
+        prompt += "\nBlog categories (pick exactly one, verbatim, for the 'category' field): " + " | ".join(categories)
+        fields["category"] = "str"
+    return complete_json(prompt, fields, premium=premium, max_tokens=6000 if platform == "own_blog" else 3000)
 
 
 REPLY_PROMPT = """You manage link-building outreach for {brand} ({domain}). Classify this reply and draft a response.

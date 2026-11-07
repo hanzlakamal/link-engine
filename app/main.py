@@ -461,7 +461,8 @@ def account_action(pid: int, aid: int, action: str, request: Request, db: Sessio
 
 @app.post("/p/{pid}/content/{cid}")
 def content_action(pid: int, cid: int, request: Request, action: str = Form(...), title: str = Form(""),
-                   body: str = Form(""), published_url: str = Form(""), db: Session = Depends(get_db)):
+                   body: str = Form(""), published_url: str = Form(""), category: str = Form(None),
+                   db: Session = Depends(get_db)):
     c = db.get(ContentItem, cid)
     if not c or c.project_id != pid:
         raise HTTPException(404)
@@ -471,6 +472,8 @@ def content_action(pid: int, cid: int, request: Request, action: str = Form(...)
         if not authz.at_least(u, "manager") and not cfg["automation"].get("builders_can_approve", True):
             raise HTTPException(403, "A manager must approve this project's content")
         c.approved_by = u.id
+    if category is not None:
+        c.data = {**(c.data or {}), "category": category.strip()}
     if action == "save":
         c.title, c.body = title, body
     elif action == "approve":
