@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block body %}
+<div class="card" style="margin-bottom:12px"><div class="row">
+<b>Ready to send:</b>
+<span class="chip {{ 'win' if ready.brevo else 'warn' }}">Brevo key</span>
+<span class="chip {{ 'win' if ready.sender else 'warn' }}">sender email</span>
+<span class="chip {{ 'win' if ready.address else 'warn' }}">postal address</span>
+<span class="chip {{ 'win' if ready.inbox else 'warn' }}">reply inbox</span>
+<span style="flex:1"></span>
+<form method="post" action="/p/{{p.id}}/outreach/check_inbox" class="inline"><button class="primary">Check inbox (replies + PR requests)</button></form>
+<form method="post" action="/p/{{p.id}}/outreach/draft_followups" class="inline"><button>Draft due follow-ups</button></form>
+</div><small>Emails are drafted from opportunities ("Find contact" then "Draft"), approved in Link publishing, and sent within your warm-up limits during business hours. Every email has an unsubscribe link.</small></div>
+<div class="grid">
+<div class="card tbl"><h3>Contacts {% for k,v in counts.items() %}<span class="chip">{{ k }} {{ v }}</span> {% endfor %}</h3>
+<form method="post" action="/p/{{p.id}}/contacts" class="row" style="margin-bottom:8px"><input name="email" type="email" placeholder="editor@site.com" required><input name="name" placeholder="Name"><button>Add</button></form>
+<table><tr><th>Contact</th><th>Status</th><th>Last</th></tr>
+{% for c in contacts %}<tr><td>{{ c.name }} <small>{{ c.email }}</small><br><small>{{ c.domain }} · {{ c.source }}</small></td>
+<td><span class="chip {{ 'win' if c.status=='replied' else ('warn' if c.status in ('bounced','unsubscribed') else '') }}">{{ c.status }}</span>
+{% if c.data.label %}<br><small>{{ c.data.label }}: {{ c.data.last_reply }}</small>{% endif %}</td>
+<td><small>{{ c.last_contacted.strftime('%b %d') if c.last_contacted else '–' }}</small></td></tr>
+{% else %}<tr><td colspan="3" class="muted">No contacts yet. Use "Find contact" on an opportunity.</td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Journalist requests</h3>
+{% for o in prs %}<div style="margin-bottom:10px"><b>{{ o.title }}</b> <small>{{ o.domain }} · deadline {{ o.data.deadline or '?' }}</small><br><small>{{ o.reason }}</small><br>
+<small>How to respond: {{ o.data.how_to_respond }}</small>
+<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="draft"><button class="primary">Draft answer</button></form>
+<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="rejected"><button>Skip</button></form></div>
+{% else %}<p class="muted">None yet. Sign up to Qwoted / Featured / SourceBottle with your reply inbox, then click "Check inbox".</p>{% endfor %}
+</div></div>{% endblock %}

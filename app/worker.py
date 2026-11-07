@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app import pipeline
 from app.config import get_settings
 from app.db import SessionLocal, engine, init_db
-from app.models import ContentItem, Job, Opportunity, Project, utcnow
+from app.models import ContentItem, EarnedLink, Job, Opportunity, PlatformAccount, Project, utcnow
 from app.registry import load_plugins
 
 log = logging.getLogger("worker")
@@ -92,13 +92,221 @@ def _draft(s, project, payload):
     out = ai.draft_content(brand=project.name, domain=project.domain, voice=project.brand_voice,
                            platform="email" if opp.kind != "self_publish" else platform,
                            content_type=ctype, goal=goal, target_url=payload.get("target_url", ""),
-                           premium=opp.kind in ("gift_guide", "pr_request"))
+                           premium=opp.kind in ("gift_guide", "pr_target", "pr_request"),
+                           sender=project_cfg(project)["sender"])
+    from app.models import Contact
+
+    contact = s.scalar(select(Contact).where(Contact.opportunity_id == opp.id, Contact.status == "new"))
     s.add(ContentItem(project_id=project.id, opportunity_id=opp.id, created_by=payload.get("user_id"),
-                      channel="email" if opp.kind != "self_publish" else platform, content_type=ctype,
+                      contact_id=contact.id if contact else None,
+                      channel="outreach_email" if opp.kind != "self_publish" else platform, content_type=ctype,
                       title=out.get("title", ""), body=out.get("body", ""),
                       data={"notes": out.get("notes_for_reviewer", "")}))
     opp.status = "in_progress"
     pipeline.event(s, project.id, f"Draft ready for approval: {opp.title}", "action")
+    return {"ok": True}
+
+
+@job("draft_article")
+def _draft_article(s, project, payload):
+    from app import ai
+
+    out = ai.draft_content(brand=project.name, domain=project.domain, voice=project.brand_voice, platform="own_blog",
+                           content_type="blog article", goal=payload["topic"], target_url=payload.get("target_url", ""),
+                           premium=True, sender=project_cfg(project)["sender"])
+    s.add(ContentItem(project_id=project.id, channel="own_blog", content_type="article", title=out.get("title", ""),
+                      body=out.get("body", ""), target_url=payload.get("target_url", ""), created_by=payload.get("user_id"),
+                      data={"notes": out.get("notes_for_reviewer", ""), "topic": payload["topic"]}))
+    pipeline.event(s, project.id, f"Blog article draft ready: {out.get('title', '')}", "action")
+    return {"ok": True}
+
+
+@job("publish_content")
+def _publish(s, project, payload):
+    """Publish an approved item via its channel API. Only runs because someone clicked Approve."""
+    from app import limits
+    from app.channels import HUB_PLATFORMS, get_channel
+
+    item = s.get(ContentItem, payload["content_id"])
+    if item is None or item.status not in ("approved", "scheduled"):
+        return {"skipped": True}
+    if item.channel == "outreach_email":
+        return HANDLERS["send_email"](s, project, payload)
+    cfg = project_cfg(project)
+    ok, msg = limits.allow(s, cfg, project.id, item.channel)
+    if not ok:
+        item.status = "scheduled"
+        pipeline.event(s, project.id, f"{msg}. '{item.title[:50]}' stays approved; click Publish again tomorrow.", "info")
+        return {"deferred": msg}
+    plats = HUB_PLATFORMS if item.channel == "own_blog" else (item.channel,)
+    acct = s.scalar(select(PlatformAccount).where(PlatformAccount.project_id == project.id,
+                    PlatformAccount.platform.in_(plats), PlatformAccount.active.is_(True)))
+    res = get_channel(item.channel).publish(item, acct, cfg)
+    if not res.ok:
+        item.status = "failed"
+        item.data = {**(item.data or {}), "error": res.message}
+        pipeline.event(s, project.id, f"Publish failed on {item.channel}: {res.message}", "warn")
+        return {"ok": False, "error": res.message}
+    limits.record(s, project.id, item.channel, acct.id if acct else None)
+    item.status, item.published_url = "published", res.url
+    item.published_by = payload.get("user_id")
+    if item.channel != "own_blog":  # own blog is the hub, not a backlink
+        s.add(EarnedLink(project_id=project.id, source_url=res.url, target_url=item.target_url, kind="self_publish",
+                         status="pending", content_item_id=item.id, credited_to=payload.get("user_id")))
+    pipeline.event(s, project.id, f"Published on {item.channel}: {res.url}", "win", user_id=payload.get("user_id"))
+    return {"ok": True, "url": res.url}
+
+
+@job("find_contacts")
+def _find_contacts(s, project, payload):
+    from app import outreach
+
+    opp = s.get(Opportunity, payload["opportunity_id"])
+    n = outreach.find_contacts(s, project, opp)
+    pipeline.event(s, project.id, f"Contacts for {opp.domain}: {n} found" + ("" if n else " (try adding one manually)"),
+                   "action" if n else "info")
+    return {"found": n}
+
+
+@job("send_email")
+def _send_email(s, project, payload):
+    from app import limits, outreach
+    from app.models import Contact
+
+    item = s.get(ContentItem, payload["content_id"])
+    if item is None or item.status not in ("approved", "scheduled"):
+        return {"skipped": True}
+    cfg = project_cfg(project)
+    if not outreach.in_business_hours(cfg):
+        item.status = "scheduled"
+        pipeline.event(s, project.id, f"Outside business hours ({cfg['outreach']['timezone']}). '{item.title[:40]}' "
+                       "stays approved; click Send again during business hours.", "info")
+        return {"deferred": "hours"}
+    ok, msg = limits.allow(s, cfg, project.id, "email", account_age_days=outreach._ramp_age_days(s, project.id))
+    if not ok:
+        item.status = "scheduled"
+        pipeline.event(s, project.id, f"{msg} (warm-up). Email stays approved; send tomorrow.", "info")
+        return {"deferred": msg}
+    ok, msg, mid = outreach.send_email(s, project, item)
+    if not ok:
+        item.status, item.data = "failed", {**(item.data or {}), "error": msg}
+        pipeline.event(s, project.id, f"Email not sent: {msg}", "warn")
+        return {"ok": False, "error": msg}
+    limits.record(s, project.id, "email")
+    item.status, item.published_by = "published", payload.get("user_id")
+    item.data = {**(item.data or {}), "message_id": mid}
+    if item.opportunity_id:
+        opp = s.get(Opportunity, item.opportunity_id)
+        opp.status = "in_progress"
+    pipeline.event(s, project.id, msg, "win", user_id=payload.get("user_id"))
+    return {"ok": True}
+
+
+@job("draft_followups")
+def _draft_followups(s, project, payload):
+    from app import ai, outreach
+
+    n = 0
+    for it in outreach.due_followups(s, project):
+        out = ai.draft_content(brand=project.name, domain=project.domain, voice=project.brand_voice, platform="email",
+                               content_type="short follow-up email (2-3 sentences, polite, no guilt-tripping)",
+                               goal=f"Follow up on: {it.title}. Original:\n{it.body[:1500]}",
+                               sender=project_cfg(project)["sender"])
+        s.add(ContentItem(project_id=project.id, opportunity_id=it.opportunity_id, contact_id=it.contact_id,
+                          channel="outreach_email", content_type="follow-up",
+                          title=out.get("title") or ("Re: " + it.title), body=out.get("body", ""),
+                          data={"step": (it.data or {}).get("step", 1) + 1}))
+        it.data = {**(it.data or {}), "followed_up": True}
+        n += 1
+    pipeline.event(s, project.id, f"{n} follow-up drafts ready for approval.", "action" if n else "info")
+    return {"drafted": n}
+
+
+@job("check_inbox")
+def _check_inbox(s, project, payload):
+    from app import ai, outreach
+    from app.models import Contact
+
+    cfg = project_cfg(project)
+    acct = s.scalar(select(PlatformAccount).where(PlatformAccount.project_id == project.id,
+                    PlatformAccount.platform == "imap_inbox", PlatformAccount.active.is_(True)))
+    if acct is None:
+        pipeline.event(s, project.id, "No imap_inbox account connected (Accounts tab).", "action")
+        return {"error": "no inbox"}
+    replies = prs = 0
+    sender = cfg["sender"].get("name") or project.name
+    for m in outreach.read_inbox(acct):
+        dom = m["from"].split("@")[-1]
+        if any(dom.endswith(src) for src in cfg["outreach"]["pr_sources"]):
+            for req in ai.extract_pr_requests(project.name, project.niche, m["body"]):
+                if not req.get("relevant"):
+                    continue
+                key = (req.get("title") or "")[:200]
+                if not s.scalar(select(Opportunity).where(Opportunity.project_id == project.id,
+                                Opportunity.kind == "pr_request", Opportunity.key == key)):
+                    s.add(Opportunity(project_id=project.id, kind="pr_request", key=key, title=req.get("title", ""),
+                                      domain=req.get("outlet", ""), score=70, reason=req.get("summary", ""),
+                                      data={**req, "source": dom}))
+                    prs += 1
+            continue
+        c = s.scalar(select(Contact).where(Contact.project_id == project.id, Contact.email == m["from"]))
+        if c is None:
+            continue
+        bounce = "delivery status notification" in m["subject"].lower() or "undeliverable" in m["subject"].lower()
+        if bounce:
+            c.status = "bounced"
+            continue
+        c.status = "replied"
+        res = ai.classify_reply(project.name, project.domain, m["subject"], m["body"], sender)
+        c.data = {**(c.data or {}), "last_reply": res.get("summary", ""), "label": res.get("label", "")}
+        if res.get("label") == "link_placed" and c.opportunity_id:
+            s.get(Opportunity, c.opportunity_id).status = "done"
+        if res.get("draft_reply"):
+            s.add(ContentItem(project_id=project.id, opportunity_id=c.opportunity_id, contact_id=c.id,
+                              channel="outreach_email", content_type="reply", title="Re: " + m["subject"].removeprefix("Re: "),
+                              body=res["draft_reply"], data={"notes": f"{res.get('label')}: {res.get('summary')}"}))
+        replies += 1
+    pipeline.event(s, project.id, f"Inbox: {replies} replies, {prs} new journalist requests.", "action" if replies or prs else "info")
+    return {"replies": replies, "pr_requests": prs}
+
+
+@job("check_links")
+def _check_links(s, project, payload):
+    """Link monitor: is each earned link still there, and is it dofollow?"""
+    import httpx
+    from bs4 import BeautifulSoup
+
+    from app.auth import assert_public_url
+
+    n = live = 0
+    for el in s.scalars(select(EarnedLink).where(EarnedLink.project_id == project.id)):
+        n += 1
+        try:
+            assert_public_url(el.source_url)
+            r = httpx.get(el.source_url, timeout=20, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 BuzzScoutsEngine"})
+            links = [a for a in BeautifulSoup(r.text, "html.parser").find_all("a", href=True)
+                     if project.domain in a["href"]] if r.status_code == 200 else []
+        except (ValueError, httpx.HTTPError):
+            links = []
+        if links:
+            live += 1
+            el.status = "live"
+            el.dofollow = not any(x in (links[0].get("rel") or []) for x in ("nofollow", "ugc", "sponsored"))
+        elif el.status == "live":
+            el.status = "lost"
+            pipeline.event(s, project.id, f"Link lost: {el.source_url}", "warn")
+        el.last_checked = utcnow()
+    pipeline.event(s, project.id, f"Link check: {live}/{n} live.", "info")
+    return {"checked": n, "live": live}
+
+
+@job("profile_kit")
+def _profile_kit(s, project, payload):
+    from app import ai
+
+    project.brand_voice = {**(project.brand_voice or {}),
+                           "profile_kit": ai.profile_kit(project.name, project.domain, project.brand_voice)}
+    pipeline.event(s, project.id, "Profile kit ready (Link publishing tab).", "action")
     return {"ok": True}
 
 

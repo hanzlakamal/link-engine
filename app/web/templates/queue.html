@@ -1,16 +1,34 @@
 {% extends "base.html" %}{% block body %}
+<div class="grid" style="margin-bottom:12px">
+<div class="card"><h3>New blog article (hub: WordPress or Shopify)</h3>
+<form method="post" action="/p/{{p.id}}/articles">
+<p><input name="topic" placeholder="Topic, e.g. 25 funny Thanksgiving shirts for the family dinner" required style="width:100%"></p>
+<p class="row"><input name="target_url" placeholder="Page to link (optional)" style="flex:1"><button class="primary">Draft with Claude</button></p></form></div>
+<div class="card"><h3>Profile kit &amp; sign-up checklist</h3>
+{% if kit %}<details><summary>Copy-ready texts</summary>{% for k in ['tagline','short','medium','long','founder_bio'] %}<p><b>{{ k }}</b><br><textarea rows="3" readonly onclick="this.select()">{{ kit[k] }}</textarea></p>{% endfor %}
+<p><small>Categories: {{ (kit.categories or [])|join(', ') }} · Keywords: {{ (kit.keywords or [])|join(', ') }}</small></p></details>
+{% else %}<p class="muted">Click "Profile kit" on Overview to generate texts once.</p>{% endif %}
+{% for o in kit_opps[:25] %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
+<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="done"><button>Done</button></form></div>{% endfor %}
+</div></div>
 {% for i in items %}
 <div class="card" style="margin-bottom:12px">
 <form method="post" action="/p/{{p.id}}/content/{{i.id}}">
-<div class="row"><span class="chip">{{ i.channel }}</span><span class="chip">{{ i.content_type }}</span><span class="chip {{ 'win' if i.status=='approved' }}">{{ i.status }}</span>
+<div class="row"><span class="chip">{{ i.channel }}</span><span class="chip">{{ i.content_type }}</span>
+<span class="chip {{ 'win' if i.status in ('approved','scheduled') else ('warn' if i.status=='failed' else '') }}">{{ i.status }}</span>
+{% if api[i.id] %}<span class="chip action">publishes on approve</span>{% endif %}
+{% if i.data.error %}<small style="color:var(--bad)">{{ i.data.error }}</small>{% endif %}
 {% if i.data.notes %}<small>Reviewer note: {{ i.data.notes }}</small>{% endif %}</div>
 <p><input name="title" value="{{ i.title }}" style="width:100%"></p>
 <p><textarea name="body" rows="10">{{ i.body }}</textarea></p>
 <div class="row">
-{% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">Approve</button>{% endif %}
+{% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">{{ 'Approve & publish' if api[i.id] else 'Approve' }}</button>{% endif %}
 <button name="action" value="save">Save edits</button><button name="action" value="reject">Reject</button>
+{% if api[i.id] and i.status in ('approved','scheduled','failed') %}<button formaction="/p/{{p.id}}/content/{{i.id}}/publish" class="primary">Publish now</button>{% endif %}
+{% if not api[i.id] %}
 {% if compose[i.id] %}<a class="btn" href="{{ compose[i.id] }}" target="_blank" rel="noopener" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('form').body.value)">Copy &amp; open {{ i.channel }}</a>{% endif %}
 <input name="published_url" placeholder="Paste live URL after posting"><button name="action" value="published">Mark published</button>
+{% endif %}
 </div></form></div>
-{% else %}<div class="card muted">Nothing waiting. Click "Draft" on an opportunity to have Claude write it.</div>{% endfor %}
+{% else %}<div class="card muted">Nothing waiting. Draft an article above or click "Draft" on an opportunity.</div>{% endfor %}
 {% endblock %}

@@ -50,6 +50,8 @@ def classify(source_url: str, title: str = "", page_type: str = "", is_spam: boo
     hit = lookup(host, catalog_extra)
     if hit:
         _, plat = hit
+        if plat.category in set(quality.get("skip_categories", [])):
+            return Classification(plat.name, plat.category, "skip", plat.category, "category skipped for this project type")
         return Classification(plat.name, plat.category, plat.acquisition, plat.category, plat.notes)
 
     subtype = ""
@@ -64,6 +66,8 @@ def classify(source_url: str, title: str = "", page_type: str = "", is_spam: boo
         return Classification("", "link_seller", "skip", subtype, "sells guest posts / sponsored")
     if subtype == "forum":
         return Classification(root_domain(host), "forum", "self_publish", subtype, "niche forum: participate, link in profile/signature")
+    if subtype in set(quality.get("skip_categories", [])):
+        return Classification(root_domain(host), subtype, "skip", subtype, "category skipped for this project type")
     if subtype == "deals":
         return Classification(root_domain(host), "deals", "self_publish", subtype, "coupon/deal site: submit brand + real offers")
     if subtype == "affiliate":

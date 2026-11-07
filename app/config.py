@@ -32,12 +32,16 @@ class Settings(BaseSettings):
     worker_poll_seconds: int = 5
     job_max_attempts: int = 1  # 1 = never auto-retry; failed jobs wait for a manual re-run
     app_name: str = "Buzz Scouts Engine"
+    public_base_url: str = "https://engine.buzzscouts.com"  # used in unsubscribe links
+    brevo_api_key: str = ""
+    hunter_api_key: str = ""
     require_2fa_for_admins: bool = False
 
 
 # Editable from the UI (Global settings). DATABASE_URL / SECRET_KEY stay env-only (bootstrap).
-SECRET_KEYS = ("anthropic_api_key", "ahrefs_api_key", "dataforseo_login", "dataforseo_password", "admin_password")
-PLAIN_KEYS = ("app_name", "model_default", "model_premium", "worker_poll_seconds", "job_max_attempts",
+SECRET_KEYS = ("anthropic_api_key", "ahrefs_api_key", "dataforseo_login", "dataforseo_password", "admin_password",
+               "brevo_api_key", "hunter_api_key")
+PLAIN_KEYS = ("app_name", "public_base_url", "model_default", "model_premium", "worker_poll_seconds", "job_max_attempts",
               "require_2fa_for_admins")
 _cache: dict = {"t": 0.0, "v": None}
 
@@ -108,6 +112,7 @@ DEFAULTS: dict = {
         "spam_tokens": ["casino", "betting", "cbd", "viagra", "loan", "porn", "escort", "essay"],
         "relevance_terms": ["shirt", "tee", "apparel", "gift", "funny", "graphic", "fashion", "clothing", "merch"],
         "blocklist": [],
+        "skip_categories": [],  # catalog categories to ignore (set by project type, editable)
         # Country TLDs outside the target market (US default). Set [] for international brands.
         "exclude_tlds": ["ru", "pl", "no", "dk", "nl", "de", "fr", "es", "it", "il", "id", "my", "ua", "br", "cz", "lk", "mk"],
         "weights": {"dr": 0.30, "traffic": 0.15, "overlap": 0.25, "relevance": 0.20, "dofollow": 0.10},
@@ -121,18 +126,51 @@ DEFAULTS: dict = {
     "limits": {
         # token-bucket style caps per channel per day; random jitter between actions
         "default_per_day": 5,
-        "per_channel_per_day": {"reddit": 2, "quora": 3, "medium": 1, "email": 5, "pinterest": 10},
+        "per_channel_per_day": {"reddit": 2, "quora": 3, "medium": 1, "email": 5, "pinterest": 10, "own_blog": 2},
         "jitter_minutes": [3, 12],
         "business_hours": [9, 17],
         "email_ramp": {"start": 5, "max": 30, "weeks": 4, "bounce_pause_pct": 3.0, "followups": 1, "followup_days": 5},
+    },
+    "sender": {
+        # Used in outreach emails and signatures so drafts never contain placeholders.
+        "name": "", "title": "Founder", "email": "", "reply_to": "", "signature": "",
+        "postal_address": "",  # required in commercial email (CAN-SPAM)
+    },
+    "outreach": {
+        "timezone": "America/New_York",  # business hours are checked in this timezone
+        "pr_sources": ["qwoted.com", "featured.com", "sourcebottle.com", "helpareporter.com", "sourceofsources.com",
+                       "connectively.us", "terkel.io"],
+        "max_contacts_per_site": 2,
+    },
+    "publishing": {
+        "own_blog_status": "publish",  # publish | draft  (what Approve does on the blog hub)
+        "own_blog_category": "",  # WordPress category name (optional)
+        "shopify_blog_handle": "",  # Shopify: blog handle (empty = first blog, usually "news")
+        "shopify_api_version": "2026-01",
     },
     "alerts": {"daily_digest": True, "digest_hour": 8, "chat": {"provider": "", "target": ""}},
 }
 
 
-def merged_settings(overrides: dict | None) -> dict:
+# Per project type: different link strategies make sense (merged under the project's own overrides).
+TYPE_PRESETS: dict[str, dict] = {
+    "ecommerce": {},
+    "affiliate": {"quality": {"skip_categories": ["deals", "affiliate", "marketplace", "reviews"]}},
+    "local": {"quality": {"skip_categories": ["affiliate", "deals", "marketplace"]}},
+    "saas": {"quality": {"skip_categories": ["deals", "marketplace"]}},
+}
+PROJECT_TYPES = list(TYPE_PRESETS)
+
+
+def project_cfg(project) -> dict:
+    """Effective settings for a project: DEFAULTS <- type preset <- project overrides."""
+    base = merged_settings(TYPE_PRESETS.get(getattr(project, "type", "") or "ecommerce", {}))
+    return merged_settings(project.settings, base)
+
+
+def merged_settings(overrides: dict | None, base: dict | None = None) -> dict:
     """Deep-merge project overrides onto DEFAULTS (dicts merge, everything else replaces)."""
-    out = copy.deepcopy(DEFAULTS)
+    out = copy.deepcopy(base if base is not None else DEFAULTS)
 
     def _merge(dst: dict, src: dict) -> None:
         for k, v in (src or {}).items():

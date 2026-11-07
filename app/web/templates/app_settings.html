@@ -10,6 +10,7 @@
 <p><button class="primary">Save</button></p></div>
 <div class="card"><h3>Branding &amp; security</h3>
 <p><label>App name</label><br><input name="app_name" value="{{ s.app_name }}" style="width:100%"></p>
+<p><label>Public URL (for unsubscribe links)</label><br><input name="public_base_url" value="{{ s.public_base_url }}" style="width:100%"></p>
 <p><label><input type="checkbox" name="require_2fa_for_admins" {{ 'checked' if s.require_2fa_for_admins }}> Require 2FA for admins</label></p>
 <p><label>Worker poll interval (seconds)</label><br><input type="number" name="worker_poll_seconds" value="{{ s.worker_poll_seconds }}"></p>
 <p><label>Job attempts (1 = never auto-retry)</label><br><input type="number" name="job_max_attempts" value="{{ s.job_max_attempts }}" min="1" max="5"></p>

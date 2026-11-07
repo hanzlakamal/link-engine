@@ -30,6 +30,7 @@ class Launch72h(Playbook):
     description = "Make the brand visible, get first social proof and first links in 72 hours (+ day-0 setup)."
     stage = "launch"
     days = 3
+    types = ("ecommerce",)
 
     def tasks(self, project, start):
         b = _brand(project)
@@ -104,6 +105,7 @@ class Launch30d(Playbook):
     description = "Turn the launch into a steady engine: weekly links, content, creators, PR."
     stage = "launch"
     days = 30
+    types = ("ecommerce",)
 
     def tasks(self, project, start):
         T = TaskSpec
@@ -147,4 +149,32 @@ class Growth90d(Playbook):
             T(30, "measure", "Month 1 review: RD growth, DR, rankings, revenue from referral", "", "auto"),
             T(60, "measure", "Month 2 review", "", "auto"),
             T(90, "measure", "Quarter review + next playbook", "", "auto"),
+        ]
+
+
+@playbooks.register("affiliate_launch")
+class AffiliateLaunch(Playbook):
+    label = "Affiliate / content site launch (14 days)"
+    description = "Authority + first links for an affiliate or info site: profiles, resource pages, Q&A, expert quotes."
+    stage = "launch"
+    days = 14
+    types = ("affiliate",)
+
+    def tasks(self, project, start):
+        T = TaskSpec
+        return [
+            T(0, "measure", "GA4 + Search Console + Bing Webmaster; submit sitemap", "Connect GSC for link/ranking tracking.", "human"),
+            T(0, "foundation", "Build brand voice + author/expert bio (E-E-A-T)", "Real person, credentials, photo, About page.", "approve",
+              {"job": "build_brand_voice"}),
+            T(1, "links", "Claim brand profiles (batch 1): Crunchbase, LinkedIn page, Pinterest, Medium, Quora, Reddit (founder), Gravatar, about.me",
+              "Same name/description everywhere. Profile kit on the Link publishing tab.", "approve"),
+            T(1, "social", "Pinterest boards + first 30 pins from guides", "Handled by the Social engine (traffic-engine).", "approve"),
+            T(2, "community", "Reddit/Quora: 5 helpful answers/day from the Social engine queue", "Value first; link ~1 in 2 with disclosure.", "approve"),
+            T(3, "links", "Competitor link gap: resource pages + 'useful links' pages linking to competitors' guides", "", "auto",
+              {"job": "full_discovery"}),
+            T(4, "pr", "Expert-quote requests (Qwoted / Featured / SourceBottle): sign up, route emails to the reply inbox", "", "human"),
+            T(5, "links", "Resource-page outreach: 10 personal pitches for your best guide", "", "approve"),
+            T(7, "links", "Publish 2 hub articles on your blog + syndicate summaries (Medium import)", "", "approve"),
+            T(10, "pr", "Answer 5 journalist requests with expert quotes", "", "approve"),
+            T(14, "measure", "2-week review: links live, referring domains, impressions in GSC", "", "auto"),
         ]

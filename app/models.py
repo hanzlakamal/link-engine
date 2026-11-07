@@ -64,6 +64,7 @@ class Project(TimestampMixin, Base):
     # launch = new site (self-publish + creators + launch playbook first)
     # growth = established (link gap, PR, broken links, scale)
     stage: Mapped[str] = mapped_column(String(20), default="launch")
+    type: Mapped[str] = mapped_column(String(20), default="ecommerce")  # ecommerce | affiliate | local | saas
     niche: Mapped[str] = mapped_column(String(200), default="")
     shop_platform: Mapped[str] = mapped_column(String(50), default="")  # shopify, woocommerce, ...
     brand_voice: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -146,6 +147,7 @@ class ContentItem(TimestampMixin, Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id", ondelete="SET NULL"))
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))
+    contact_id: Mapped[int | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
     channel: Mapped[str] = mapped_column(String(50), index=True)
     content_type: Mapped[str] = mapped_column(String(40), default="post")
     title: Mapped[str] = mapped_column(Text, default="")
@@ -158,6 +160,25 @@ class ContentItem(TimestampMixin, Base):
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     published_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Contact(TimestampMixin, Base):
+    """Editor / blogger / journalist we may email. Status gates every send (unsubscribed = never again)."""
+
+    __tablename__ = "contacts"
+    __table_args__ = (UniqueConstraint("project_id", "email"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id", ondelete="SET NULL"), nullable=True)
+    email: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(200), default="")
+    domain: Mapped[str] = mapped_column(String(255), default="", index=True)
+    source: Mapped[str] = mapped_column(String(30), default="page")  # page | hunter | manual | inbox
+    # new | contacted | replied | bounced | unsubscribed
+    status: Mapped[str] = mapped_column(String(20), default="new", index=True)
+    unsub_token: Mapped[str] = mapped_column(String(64), default="", index=True)
+    last_contacted: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 

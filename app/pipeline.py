@@ -16,7 +16,7 @@ import io
 
 from app.catalog import lookup
 from app.classify import classify, domain_of, root_domain
-from app.config import merged_settings
+from app.config import merged_settings, project_cfg
 from app.models import ApiUsage, Backlink, Competitor, Event, Project, utcnow
 from app.registry import strategies
 
@@ -44,8 +44,9 @@ def _provider(s: Session, project: Project, cfg: dict):
     return p
 
 
-def event(s: Session, project_id: int | None, message: str, level: str = "info", **data) -> None:
-    s.add(Event(project_id=project_id, level=level, message=message, data=data))
+def event(s: Session, project_id: int | None, message: str, level: str = "info", user_id: int | None = None,
+          **data) -> None:
+    s.add(Event(project_id=project_id, level=level, message=message, user_id=user_id, data=data))
 
 
 def is_platform_not_competitor(domain: str, cfg: dict) -> bool:
@@ -57,7 +58,7 @@ def is_platform_not_competitor(domain: str, cfg: dict) -> bool:
 
 def discover_competitors(s: Session, project: Project) -> dict:
     """Auto-discover competitors. If none have enough data (new sites), ask the user for one."""
-    cfg = merged_settings(project.settings)
+    cfg = project_cfg(project)
     p = _provider(s, project, cfg)
     if p is None:
         return {"status": "needs_input"}
@@ -113,7 +114,7 @@ def discover_competitors(s: Session, project: Project) -> dict:
 
 def pull_backlinks(s: Session, project: Project, competitor_id: int | None = None) -> dict:
     """Pull backlinks for confirmed competitors (and for our own domain, to compute the gap)."""
-    cfg = merged_settings(project.settings)
+    cfg = project_cfg(project)
     p = _provider(s, project, cfg)
     if p is None:
         return {"status": "needs_input"}
@@ -166,7 +167,7 @@ def pull_backlinks(s: Session, project: Project, competitor_id: int | None = Non
 
 def reclassify(s: Session, project: Project) -> int:
     """Re-run classification after catalog/quality settings change (no API cost)."""
-    cfg = merged_settings(project.settings)
+    cfg = project_cfg(project)
     n = 0
     for b in s.scalars(select(Backlink).where(Backlink.project_id == project.id)):
         c = classify(b.source_url, b.title, b.page_type, b.is_spam, cfg["quality"], cfg.get("catalog_extra"))
@@ -176,7 +177,7 @@ def reclassify(s: Session, project: Project) -> int:
 
 
 def build_opportunities(s: Session, project: Project) -> dict:
-    cfg = merged_settings(project.settings)
+    cfg = project_cfg(project)
     enabled = cfg.get("strategies")  # explicit list overrides stage defaults
     out = {}
     for name, cls in strategies.items():
@@ -200,7 +201,7 @@ def import_backlinks_csv(s: Session, project: Project, text: str, competitor_dom
     Domain rating, traffic_domain | Domain traffic, is_dofollow | Nofollow, anchor, title, is_spam.
     competitor_domain=None imports links pointing at OUR site.
     """
-    cfg = merged_settings(project.settings)
+    cfg = project_cfg(project)
     comp_id = None
     if competitor_domain:
         d = domain_of(competitor_domain)

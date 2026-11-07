@@ -25,6 +25,7 @@ class Playbook(ABC):
     description = ""
     stage = "launch"
     days = 3
+    types: tuple[str, ...] = ("ecommerce", "affiliate", "local", "saas")
 
     @abstractmethod
     def tasks(self, project: Project, start: date) -> list[TaskSpec]: ...

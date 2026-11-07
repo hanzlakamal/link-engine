@@ -91,6 +91,8 @@ BRAND VOICE (follow strictly):
 GOAL: {goal}
 PLATFORM RULES: {rules}
 Link to include (only where it genuinely helps the reader): {target_url}
+SENDER / AUTHOR: {sender}
+Never leave placeholders like [Name] or [Your Name]. If a detail is unknown, write around it.
 
 Return ONLY JSON: {{"title": "...", "body": "...", "notes_for_reviewer": "..."}}
 """
@@ -102,15 +104,55 @@ PLATFORM_RULES = {
     "pinterest": "Title <100 chars keyword-rich; description 2-3 sentences with gift intent keywords.",
     "email": "Under 120 words. Personal, specific reason for contacting. One clear ask. No attachments.",
     "profile": "Brand description 150-300 chars + long version 500-800 chars. Consistent with other profiles.",
+    "own_blog": ("900-1400 word SEO article for the brand's own blog. Body must be clean HTML only "
+                 "(<h2>, <h3>, <p>, <ul>, <li>, <a>, <strong>), no <html>/<body>, no markdown. "
+                 "Link to relevant pages on the brand's site 2-4 times."),
 }
+
+PROFILE_KIT_PROMPT = """Create a reusable profile kit for {brand} ({domain}) to paste into directory, review,
+business-data, deal and affiliate-network sign-ups. Brand voice: {voice}
+Return ONLY JSON: {{"tagline": "<60 chars", "short": "150-250 chars", "medium": "400-600 chars",
+"long": "900-1200 chars", "categories": ["..."], "keywords": ["..."], "founder_bio": "300 chars"}}"""
+
+
+def profile_kit(brand: str, domain: str, voice: dict) -> dict:
+    return _json(complete(PROFILE_KIT_PROMPT.format(brand=brand, domain=domain, voice=json.dumps(voice)[:3000]),
+                          max_tokens=2500))
 
 
 def draft_content(*, brand: str, domain: str, voice: dict, platform: str, content_type: str, goal: str,
-                  target_url: str = "", premium: bool = False) -> dict:
-    prompt = CONTENT_PROMPT.format(
+                  target_url: str = "", premium: bool = False, sender: dict | None = None) -> dict:
+    sd = sender or {}
+    sender_txt = sd.get("signature") or ", ".join(x for x in (sd.get("name"), sd.get("title"), brand) if x)
+    prompt = CONTENT_PROMPT.format(sender=sender_txt or f"The {brand} team",
         content_type=content_type, platform=platform, brand=brand, domain=domain,
         voice=json.dumps(voice or {"tone": ["friendly"]}, indent=1)[:4000], goal=goal,
         rules=PLATFORM_RULES.get(platform, "Follow the platform's norms; never spammy."),
         target_url=target_url or f"https://{domain}",
     )
-    return _json(complete(prompt, premium=premium, max_tokens=3000))
+    return _json(complete(prompt, premium=premium, max_tokens=6000 if platform == 'own_blog' else 3000))
+
+
+REPLY_PROMPT = """You manage link-building outreach for {brand} ({domain}). Classify this reply and draft a response.
+Original pitch subject: {subject}
+Their reply:
+{body}
+
+Return ONLY JSON: {{"label": "interested|wants_payment|not_interested|out_of_office|link_placed|question|other",
+"summary": "1 sentence", "draft_reply": "short reply in the brand voice, or empty if none is needed"}}
+Never agree to pay for links. Sender: {sender}"""
+
+PR_PROMPT = """Extract journalist requests relevant to {brand} ({niche}) from this digest email.
+Return ONLY JSON: {{"requests": [{{"title": "...", "outlet": "...", "deadline": "...", "summary": "...",
+"how_to_respond": "...", "relevant": true/false}}]}}
+EMAIL:
+{body}"""
+
+
+def classify_reply(brand, domain, subject, body, sender) -> dict:
+    return _json(complete(REPLY_PROMPT.format(brand=brand, domain=domain, subject=subject, body=body[:4000],
+                                              sender=sender), max_tokens=1500))
+
+
+def extract_pr_requests(brand, niche, body) -> list[dict]:
+    return _json(complete(PR_PROMPT.format(brand=brand, niche=niche, body=body[:12000]), max_tokens=3000)).get("requests", [])

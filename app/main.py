@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 from contextlib import asynccontextmanager
 from collections import Counter
 from datetime import date
@@ -19,12 +20,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import pipeline
-from app.channels import get_channel
+from app.channels import COMPOSE_URLS, HUB_PLATFORMS, get_channel, test_hub
 from app.classify import domain_of
-from app.config import DEFAULTS, PLAIN_KEYS, SECRET_KEYS, get_settings, invalidate_settings, merged_settings
+from app.config import DEFAULTS, PLAIN_KEYS, PROJECT_TYPES, project_cfg, SECRET_KEYS, get_settings, invalidate_settings, merged_settings
 from app import auth as authz
 from app.db import SessionLocal, get_db, init_db
-from app.models import (ApiUsage, AppSetting, ProjectMember, User, Competitor, ContentItem, EarnedLink, Event, Job, Opportunity, Project, Task,
+from app.models import (ApiUsage, AppSetting, Contact, PlatformAccount, ProjectMember, User, Competitor, ContentItem, EarnedLink, Event, Job, Opportunity, Project, Task,
                         utcnow)
 from app.registry import load_plugins, playbooks, providers, strategies
 from app.security import decrypt, encrypt
@@ -63,7 +64,7 @@ async def guard(request: Request, call_next):
             request.headers.get("origin"), request.headers.get("referer"), request.headers.get("host", "")):
         return HTMLResponse("Blocked: cross-site request.", status_code=403)
     user = None
-    if not path.startswith(("/login", "/healthz", "/static", "/logout")):
+    if not path.startswith(("/login", "/healthz", "/static", "/logout", "/u/")):
         with SessionLocal() as db:
             user = authz.user_from_token(db, request.cookies.get(COOKIE))
             if user is not None:
@@ -194,10 +195,11 @@ def home(request: Request, db: Session = Depends(get_db)):
 
 
 @app.post("/projects")
-def create_project(name: str = Form(...), domain: str = Form(...), stage: str = Form("launch"),
+def create_project(name: str = Form(...), domain: str = Form(...), stage: str = Form("launch"), type: str = Form("ecommerce"),
                    niche: str = Form(""), client: str = Form(""), competitors: str = Form(""),
                    seed_keywords: str = Form(""), db: Session = Depends(get_db)):
     p = Project(name=name.strip(), domain=domain_of(domain), stage=stage, niche=niche, client=client,
+                type=type if type in PROJECT_TYPES else "ecommerce",
                 settings={"discovery": {"seed_keywords": [k.strip() for k in seed_keywords.split(",") if k.strip()]}})
     db.add(p)
     db.flush()
@@ -221,9 +223,11 @@ def project_page(pid: int, request: Request, db: Session = Depends(get_db)):
     by_acq = dict(db.execute(select(Opportunity.kind, func.count()).where(Opportunity.project_id == pid)
                              .group_by(Opportunity.kind)).all())
     usage = db.scalar(select(func.coalesce(func.sum(ApiUsage.units), 0)).where(ApiUsage.project_id == pid))
+    se = _social_engine(db, pid)
+    social = social_engine_call(se, "GET", "/api/stats") if se else None
     return templates.TemplateResponse(request, "project.html", {
         "p": p, "f": funnel(db, pid), "top": top, "tasks": tasks, "events": events, "jobs": jobs,
-        "by_kind": by_acq, "usage": usage, "playbooks": playbooks.items(),
+        "by_kind": by_acq, "usage": usage, "playbooks": playbooks.items(), "social": social,
         "strategies": [(n, c) for n, c in strategies.items()], "tab": "overview"})
 
 
@@ -336,6 +340,8 @@ def opportunity_action(pid: int, oid: int, request: Request, action: str = Form(
         if not authz.at_least(u, "manager") and user_id and int(user_id) != u.id:
             raise HTTPException(403, "Builders can only assign to themselves")
         o.assigned_to = int(user_id) if user_id else None
+    elif action == "find_contact":
+        enqueue(db, "find_contacts", pid, opportunity_id=oid)
     elif action == "draft":
         o.status = "approved"
         o.assigned_to = o.assigned_to or u.id
@@ -350,10 +356,107 @@ def opportunity_action(pid: int, oid: int, request: Request, action: str = Form(
 def queue_page(pid: int, request: Request, db: Session = Depends(get_db)):
     p = _project(db, pid)
     items = db.scalars(select(ContentItem).where(ContentItem.project_id == pid,
-                       ContentItem.status.in_(("pending_approval", "approved", "scheduled")))
+                       ContentItem.status.in_(("pending_approval", "approved", "scheduled", "failed")))
                        .order_by(ContentItem.created_at.desc())).all()
+    kit_opps = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.kind == "self_publish",
+                          Opportunity.status.in_(("new", "approved", "in_progress")))
+                          .order_by(Opportunity.score.desc())).all()
+    kit_opps = [o for o in kit_opps if (o.data or {}).get("category") in
+                ("directory", "reviews", "deals", "affiliate", "profile", "marketplace", "web2")]
     return templates.TemplateResponse(request, "queue.html", {
-        "p": p, "items": items, "compose": {i.id: get_channel(i.channel).compose_url() for i in items}, "tab": "queue"})
+        "p": p, "items": items, "tab": "queue", "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps,
+        "compose": {i.id: get_channel(i.channel).compose_url() for i in items},
+        "api": {i.id: get_channel(i.channel).mode == "api" for i in items}})
+
+
+@app.post("/p/{pid}/articles")
+def new_article(pid: int, request: Request, topic: str = Form(...), target_url: str = Form(""),
+                db: Session = Depends(get_db)):
+    _project(db, pid)
+    enqueue(db, "draft_article", pid, topic=topic, target_url=target_url, user_id=me(request).id)
+    db.commit()
+    return _back(pid, "queue")
+
+
+@app.post("/p/{pid}/content/{cid}/publish")
+def republish(pid: int, cid: int, request: Request, db: Session = Depends(get_db)):
+    c = db.get(ContentItem, cid)
+    if c and c.project_id == pid and c.status in ("approved", "scheduled", "failed"):
+        c.status = "approved"
+        enqueue(db, "publish_content", pid, content_id=cid, user_id=me(request).id)
+        db.commit()
+    return _back(pid, "queue")
+
+
+PLATFORM_CHOICES = list(HUB_PLATFORMS) + ["social_engine"] + sorted(set(COMPOSE_URLS) | {"imap_inbox"})
+
+
+def _social_engine(db: Session, pid: int):
+    return db.scalar(select(PlatformAccount).where(PlatformAccount.project_id == pid,
+                     PlatformAccount.platform == "social_engine", PlatformAccount.active.is_(True)))
+
+
+def social_engine_call(acct, method: str, path: str) -> dict:
+    """Talk to the Social & Community engine (traffic-engine) for this project."""
+    import httpx
+
+    base = (acct.data or {}).get("site_url", "").rstrip("/")
+    try:
+        authz.assert_public_url(base)
+        token = json.loads(decrypt(acct.secret) or "{}").get("password", "")
+        r = httpx.request(method, base + path, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"error": r.status_code}
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:120]}
+
+
+@app.post("/p/{pid}/jobs/social_scan")
+def social_scan(pid: int, request: Request, db: Session = Depends(get_db)):
+    acct = _social_engine(db, pid)
+    if acct:
+        res = social_engine_call(acct, "POST", "/api/scan")
+        audit(db, me(request).id, f"Social engine scan: {res}", pid)
+        db.commit()
+    return _back(pid)
+
+
+@app.get("/p/{pid}/accounts", response_class=HTMLResponse)
+def accounts_page(pid: int, request: Request, db: Session = Depends(get_db)):
+    p = _project(db, pid)
+    accts = db.scalars(select(PlatformAccount).where(PlatformAccount.project_id == pid)).all()
+    return templates.TemplateResponse(request, "accounts.html", {
+        "p": p, "accts": accts, "platforms": PLATFORM_CHOICES, "tab": "accounts"})
+
+
+@app.post("/p/{pid}/accounts")
+def add_account(pid: int, request: Request, platform: str = Form(...), persona: str = Form("brand"),
+                handle: str = Form(""), site_url: str = Form(""), public_url: str = Form(""), username: str = Form(""),
+                password: str = Form(""), host: str = Form(""), db: Session = Depends(get_db)):
+    _project(db, pid)
+    if platform not in PLATFORM_CHOICES:
+        raise HTTPException(400)
+    db.add(PlatformAccount(project_id=pid, platform=platform, persona=persona, handle=handle,
+                           secret=encrypt(json.dumps({"username": username, "password": password})) if password else "",
+                           data={"site_url": site_url.strip(), "public_url": public_url.strip(), "host": host.strip()}))
+    audit(db, me(request).id, f"Connected account {platform} {handle or site_url}", pid)
+    db.commit()
+    return _back(pid, "accounts")
+
+
+@app.post("/p/{pid}/accounts/{aid}/{action}")
+def account_action(pid: int, aid: int, action: str, request: Request, db: Session = Depends(get_db)):
+    a = db.get(PlatformAccount, aid)
+    if not a or a.project_id != pid:
+        raise HTTPException(404)
+    if action == "test" and a.platform in HUB_PLATFORMS:
+        a.data = {**a.data, "last_test": test_hub(a)}
+    elif action == "toggle":
+        a.active = not a.active
+    elif action == "delete":
+        audit(db, me(request).id, f"Deleted account {a.platform} {a.handle}", pid)
+        db.delete(a)
+    db.commit()
+    return _back(pid, "accounts")
 
 
 @app.post("/p/{pid}/content/{cid}")
@@ -364,7 +467,7 @@ def content_action(pid: int, cid: int, request: Request, action: str = Form(...)
         raise HTTPException(404)
     u = me(request)
     if action == "approve":
-        cfg = merged_settings(_project(db, pid).settings)
+        cfg = project_cfg(_project(db, pid))
         if not authz.at_least(u, "manager") and not cfg["automation"].get("builders_can_approve", True):
             raise HTTPException(403, "A manager must approve this project's content")
         c.approved_by = u.id
@@ -372,6 +475,8 @@ def content_action(pid: int, cid: int, request: Request, action: str = Form(...)
         c.title, c.body = title, body
     elif action == "approve":
         c.title, c.body, c.status = title or c.title, body or c.body, "approved"
+        if get_channel(c.channel).mode == "api":  # approved -> publish via API (within daily limits)
+            enqueue(db, "publish_content", pid, content_id=c.id, user_id=u.id)
     elif action == "reject":
         c.status = "rejected"
     elif action == "published" and published_url:
@@ -409,7 +514,7 @@ def task_action(pid: int, tid: int, status: str = Form(...), db: Session = Depen
 @app.get("/p/{pid}/settings", response_class=HTMLResponse)
 def settings_page(pid: int, request: Request, saved: int = 0, error: str = "", db: Session = Depends(get_db)):
     p = _project(db, pid)
-    eff = merged_settings(p.settings)
+    eff = project_cfg(p)
     used = pipeline.over_budget(db, p, eff)[1]
     advanced = {k: v for k, v in (p.settings or {}).items() if k not in DEFAULTS}
     return templates.TemplateResponse(request, "settings.html", {
@@ -429,6 +534,7 @@ async def save_settings(pid: int, request: Request, db: Session = Depends(get_db
         return RedirectResponse(f"/p/{pid}/settings?error={str(e)[:120]}", status_code=303)
     p.settings, p.brand_voice = overrides, voice
     p.name = form.get("name") or p.name
+    p.type = form.get("type") if form.get("type") in PROJECT_TYPES else p.type
     p.stage = form.get("stage") or p.stage
     p.client, p.niche, p.updated_at = form.get("client", ""), form.get("niche", ""), utcnow()
     audit(db, me(request).id, "Changed project settings", pid)
@@ -437,7 +543,8 @@ async def save_settings(pid: int, request: Request, db: Session = Depends(get_db
 
 
 SECRET_LABELS = [("anthropic_api_key", "Anthropic API key"), ("ahrefs_api_key", "Ahrefs API key"),
-                 ("dataforseo_login", "DataForSEO login"), ("dataforseo_password", "DataForSEO password")]
+                 ("dataforseo_login", "DataForSEO login"), ("dataforseo_password", "DataForSEO password"),
+                 ("brevo_api_key", "Brevo API key (outreach sending)"), ("hunter_api_key", "Hunter.io API key (optional contact finder)")]
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -602,3 +709,56 @@ def audit_page(request: Request, db: Session = Depends(get_db)):
     rows = db.scalars(select(Event).where(Event.level == "audit").order_by(Event.created_at.desc()).limit(300)).all()
     names = {u.id: u.name or u.email for u in db.scalars(select(User))}
     return templates.TemplateResponse(request, "audit.html", {"rows": rows, "names": names})
+
+
+
+# ------------------------------------------------------------------ outreach & PR
+@app.get("/p/{pid}/outreach", response_class=HTMLResponse)
+def outreach_page(pid: int, request: Request, db: Session = Depends(get_db)):
+    p = _project(db, pid)
+    contacts = db.scalars(select(Contact).where(Contact.project_id == pid).order_by(Contact.updated_at.desc()).limit(300)).all()
+    prs = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.kind == "pr_request",
+                     Opportunity.status.in_(("new", "approved", "in_progress"))).order_by(Opportunity.created_at.desc())).all()
+    counts = dict(db.execute(select(Contact.status, func.count()).where(Contact.project_id == pid).group_by(Contact.status)).all())
+    cfg = project_cfg(p)
+    ready = {"brevo": bool(get_settings().brevo_api_key), "sender": bool(cfg["sender"].get("email")),
+             "address": bool(cfg["sender"].get("postal_address")),
+             "inbox": bool(db.scalar(select(PlatformAccount).where(PlatformAccount.project_id == pid,
+                                                                    PlatformAccount.platform == "imap_inbox")))}
+    return templates.TemplateResponse(request, "outreach.html", {
+        "p": p, "contacts": contacts, "prs": prs, "counts": counts, "ready": ready, "tab": "outreach"})
+
+
+@app.post("/p/{pid}/outreach/{jtype}")
+def outreach_job(pid: int, jtype: str, request: Request, db: Session = Depends(get_db)):
+    if jtype not in ("check_inbox", "draft_followups"):
+        raise HTTPException(404)
+    enqueue(db, jtype, pid, user_id=me(request).id)
+    db.commit()
+    return _back(pid, "outreach")
+
+
+@app.post("/p/{pid}/contacts")
+def add_contact(pid: int, request: Request, email: str = Form(...), name: str = Form(""), opportunity_id: str = Form(""),
+                db: Session = Depends(get_db)):
+    import secrets as _s
+
+    e = email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", e):
+        raise HTTPException(400, "Invalid email")
+    if not db.scalar(select(Contact).where(Contact.project_id == pid, Contact.email == e)):
+        opp = db.get(Opportunity, int(opportunity_id)) if opportunity_id else None
+        db.add(Contact(project_id=pid, email=e, name=name, source="manual", domain=e.split("@")[1],
+                       opportunity_id=opp.id if opp and opp.project_id == pid else None, unsub_token=_s.token_urlsafe(24)))
+        db.commit()
+    return _back(pid, "outreach")
+
+
+@app.get("/u/{token}", response_class=HTMLResponse)
+@app.post("/u/{token}", response_class=HTMLResponse)
+def unsubscribe(token: str, db: Session = Depends(get_db)):
+    c = db.scalar(select(Contact).where(Contact.unsub_token == token)) if len(token) > 20 else None
+    if c:
+        c.status = "unsubscribed"
+        db.commit()
+    return HTMLResponse("<p style='font-family:sans-serif;padding:40px'>You're unsubscribed. We won't email you again.</p>")

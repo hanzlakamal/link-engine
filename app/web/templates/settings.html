@@ -6,6 +6,8 @@
 <div class="card"><h3>Project</h3>
 <p><label>Name</label><br><input name="name" value="{{ p.name }}" style="width:100%"></p>
 <p><label>Stage</label><br><select name="stage"><option value="launch" {{ 'selected' if p.stage=='launch' }}>Launch (new site)</option><option value="growth" {{ 'selected' if p.stage=='growth' }}>Growth (established)</option></select></p>
+<p><label>Type</label><br><select name="type">{% for t in ['ecommerce','affiliate','local','saas'] %}<option {{ 'selected' if p.type==t }}>{{ t }}</option>{% endfor %}</select>
+<br><small>Changes which link types and playbooks apply. Re-run "Re-score" after changing.</small></p>
 <p><label>Client</label><br><input name="client" value="{{ p.client }}" style="width:100%"></p>
 <p><label>Niche</label><br><input name="niche" value="{{ p.niche }}" style="width:100%"></p>
 <p><small>Usage this month: <b>{{ '%.0f'|format(used) }}</b> Ahrefs units of {{ effective.discovery.monthly_unit_budget or 'unlimited' }}.</small></p>

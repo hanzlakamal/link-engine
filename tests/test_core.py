@@ -338,3 +338,43 @@ def test_ssrf_guard_and_totp():
             authz.assert_public_url(bad)
     s = authz.new_totp_secret()
     assert authz.verify_totp(s, authz.totp_now(s)) and not authz.verify_totp(s, "000000" if authz.totp_now(s) != "000000" else "111111")
+
+
+def test_types_hub_outreach_smoke(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import outreach
+    from app.config import project_cfg
+    from app.main import app
+    from app.models import Contact, ContentItem
+
+    # affiliate projects skip deal/affiliate-network links
+    aff = Project(name="P", domain="p.com", type="affiliate", settings={})
+    q = project_cfg(aff)["quality"]
+    assert classify("https://www.wethrift.com/codes/x.com", quality=q).acquisition == "skip"
+    assert classify("https://www.wethrift.com/codes/x.com", quality=project_cfg(Project(name="E", domain="e.com", settings={}))["quality"]).acquisition == "self_publish"
+    # outreach compliance gates
+    with session_scope() as s:
+        p = Project(name="T", domain="t.com", settings={"sender": {"email": "a@t.com", "postal_address": ""}})
+        s.add(p)
+        s.flush()
+        c = Contact(project_id=p.id, email="ed@site.com", unsub_token="x" * 30, status="unsubscribed")
+        s.add(c)
+        s.flush()
+        it = ContentItem(project_id=p.id, channel="outreach_email", title="Hi", body="Body", contact_id=c.id)
+        s.add(it)
+        s.flush()
+        ok, msg, _ = outreach.send_email(s, p, it)
+        assert not ok and "unsubscribed" in msg
+        c.status = "new"
+        ok, msg, _ = outreach.send_email(s, p, it)
+        assert not ok and ("Brevo" in msg or "postal" in msg)
+    with TestClient(app) as cl:
+        cl.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        cl.post("/projects", data={"name": "Aff", "domain": "aff.com", "type": "affiliate"})
+        pid = [x for x in cl.get("/api/projects").json() if x["domain"] == "aff.com"][0]["id"]
+        for path in ("/outreach", "/accounts", "/queue", ""):
+            assert cl.get(f"/p/{pid}{path}").status_code == 200, path
+        assert "Affiliate / content site launch" in cl.get(f"/p/{pid}").text
+        assert "72-hour launch sprint" not in cl.get(f"/p/{pid}").text
+        assert cl.get("/u/" + "x" * 30).status_code == 200  # public unsubscribe works without login

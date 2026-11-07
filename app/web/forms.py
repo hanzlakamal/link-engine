@@ -12,7 +12,8 @@ from app.config import DEFAULTS
 
 SECTION_LABELS = {
     "market": "Market", "discovery": "Discovery & API cost", "quality": "Quality filter & scoring",
-    "automation": "Automation", "limits": "Frequency limits (anti-spam)", "alerts": "Alerts",
+    "automation": "Automation", "sender": "Sender (emails & signatures)", "publishing": "Publishing (blog hub)",
+    "outreach": "Outreach & PR", "limits": "Frequency limits (anti-spam)", "alerts": "Alerts",
 }
 HELP = {
     "discovery.providers": "Order to try data sources, comma separated (ahrefs, dataforseo).",
@@ -32,11 +33,16 @@ HELP = {
     "automation.default_mode": "approve = review queue, auto = publish without review, off = disabled.",
     "automation.channels": "Per-channel override, JSON, e.g. {\"pinterest\": \"auto\"}.",
     "limits.default_per_day": "Daily cap for channels not listed below.",
+    "sender.name": "Your name, used to sign outreach emails.",
+    "sender.email": "From address (must be a verified sender in Brevo), e.g. hello@outreach.yourdomain.com.",
+    "sender.postal_address": "Physical mailing address shown in email footers (legally required).",
+    "publishing.own_blog_status": "What Approve does for blog articles: publish live, or save as draft in your CMS.",
+    "quality.skip_categories": "Link categories ignored for this project (set by project type).",
     "limits.jitter_minutes": "Random gap between actions, min,max minutes.",
     "limits.business_hours": "Only act between these hours (start,end), local time.",
     "limits.email_ramp.bounce_pause_pct": "Pause an inbox if bounces exceed this %.",
 }
-CHOICES = {"automation.default_mode": ["approve", "auto", "off"]}
+CHOICES = {"automation.default_mode": ["approve", "auto", "off"], "publishing.own_blog_status": ["publish", "draft"]}
 
 
 def _label(path: str) -> str:

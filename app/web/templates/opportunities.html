@@ -17,6 +17,7 @@
 {% if not is_manager and o.assigned_to and o.assigned_to != me.id %}<option selected disabled>{{ names.get(o.assigned_to) }}</option>{% endif %}</select></form></td>
 <td style="white-space:nowrap">
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="draft"><button class="primary" title="Approve and let Claude draft content">Draft</button></form>
+{% if o.kind != 'self_publish' %}<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="find_contact"><button title="Find editor emails on their site">Find contact</button></form>{% endif %}
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="snoozed"><button>Later</button></form>
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="rejected"><button>✕</button></form>
 </td></tr>

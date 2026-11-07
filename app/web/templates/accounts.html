@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block body %}
+<div class="card tbl" style="margin-bottom:16px"><table>
+<tr><th>Platform</th><th>Persona</th><th>Handle / site</th><th>Status</th><th></th></tr>
+{% for a in accts %}<tr><td><b>{{ a.platform }}</b></td><td>{{ a.persona }}</td>
+<td>{{ a.handle }} <small>{{ a.data.site_url }}</small></td>
+<td><span class="chip {{ 'win' if a.active else '' }}">{{ 'active' if a.active else 'paused' }}</span> <small>{{ a.data.last_test or '' }}</small></td>
+<td style="white-space:nowrap">{% if a.platform in ('wordpress_hub','shopify_hub') %}<form method="post" action="/p/{{p.id}}/accounts/{{a.id}}/test" class="inline"><button>Test</button></form>{% endif %}
+<form method="post" action="/p/{{p.id}}/accounts/{{a.id}}/toggle" class="inline"><button>{{ 'Pause' if a.active else 'Activate' }}</button></form>
+<form method="post" action="/p/{{p.id}}/accounts/{{a.id}}/delete" class="inline"><button>Delete</button></form></td></tr>
+{% else %}<tr><td colspan="5" class="muted">No accounts connected yet.</td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Connect an account <small>(secrets are encrypted, never shown again)</small></h3>
+<form method="post" action="/p/{{p.id}}/accounts">
+<p class="row"><select name="platform">{% for x in platforms %}<option>{{ x }}</option>{% endfor %}</select>
+<select name="persona"><option>brand</option><option>founder</option></select>
+<input name="handle" placeholder="Handle / display name"></p>
+<p><input name="site_url" placeholder="Site / API URL (WordPress: https://yoursite.com · Shopify: https://store.myshopify.com)" style="width:100%"></p>
+<p><input name="public_url" placeholder="Public store URL (Shopify only, e.g. https://www.brand.com)" style="width:100%"></p>
+<p><input name="host" placeholder="IMAP host (imap_inbox only, e.g. imap.gmail.com)" style="width:100%"></p>
+<p class="row"><input name="username" placeholder="Username / email" autocomplete="off"><input type="password" name="password" placeholder="App password / Admin API token" autocomplete="new-password"></p>
+<button class="primary">Save</button></form>
+<p><small><b>wordpress_hub:</b> WP Admin &rarr; Users &rarr; Profile &rarr; Application Passwords &rarr; add "Buzz Scouts Engine" &rarr; paste WP username + that password.<br>
+<b>shopify_hub:</b> Shopify Admin &rarr; Settings &rarr; Apps &rarr; Develop apps &rarr; Create app &rarr; Admin API scopes: <code>write_content, read_content</code> &rarr; Install &rarr; paste the Admin API access token as password (username can be empty).<br>
+<b>social_engine:</b> URL of the brand's traffic-engine service (e.g. https://tshirtcrisis-social.up.railway.app) + its ENGINE_API_TOKEN as password.<br>
+<b>imap_inbox:</b> the outreach mailbox where replies and journalist-request emails arrive (use an app password).</small></p>
+</div>{% endblock %}
