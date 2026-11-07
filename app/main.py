@@ -544,9 +544,14 @@ def social_engine_call(acct, method: str, path: str) -> dict:
     """Talk to the Social & Community engine (traffic-engine) for this project."""
     import httpx
 
+    from urllib.parse import urlparse
+
     base = (acct.data or {}).get("site_url", "").rstrip("/")
     try:
-        authz.assert_public_url(base)
+        u = urlparse(base)
+        # Railway private network (same project, never public) is allowed; everything else must be public.
+        if not (u.scheme == "http" and (u.hostname or "").endswith(".railway.internal")):
+            authz.assert_public_url(base)
         token = json.loads(decrypt(acct.secret) or "{}").get("password", "")
         r = httpx.request(method, base + path, headers={"Authorization": f"Bearer {token}"}, timeout=15)
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"error": r.status_code}
