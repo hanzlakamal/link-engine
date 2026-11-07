@@ -412,11 +412,18 @@ def opportunity_action(pid: int, oid: int, request: Request, action: str = Form(
 
 
 @app.get("/p/{pid}/queue", response_class=HTMLResponse)
-def queue_page(pid: int, request: Request, db: Session = Depends(get_db)):
+def queue_page(pid: int, request: Request, page: int = 1, show: str = "", db: Session = Depends(get_db)):
     p = _project(db, pid)
-    items = db.scalars(select(ContentItem).where(ContentItem.project_id == pid,
-                       ContentItem.status.in_(("pending_approval", "approved", "scheduled", "failed")))
-                       .order_by(ContentItem.created_at.desc())).all()
+    iq = select(ContentItem).where(ContentItem.project_id == pid,
+                                   ContentItem.status.in_(("pending_approval", "approved", "scheduled", "failed")))
+    mail = ("outreach_email", "email")
+    if show == "emails":
+        iq = iq.where(ContentItem.channel.in_(mail))
+    elif show == "posts":
+        iq = iq.where(ContentItem.channel.notin_(mail))
+    elif show in ("pending_approval", "approved", "scheduled", "failed"):
+        iq = iq.where(ContentItem.status == show)
+    items, pager = paginate(iq.order_by(ContentItem.created_at.desc()), page, db)
     kit_all = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.kind == "self_publish",
                          Opportunity.status.in_(("new", "approved", "in_progress", "done")))
                          .order_by(Opportunity.score.desc())).all()
@@ -426,7 +433,7 @@ def queue_page(pid: int, request: Request, db: Session = Depends(get_db)):
     kit_opps = [o for o in kit_all if o.status != "done"]
     kit_done = [o for o in kit_all if o.status == "done"]
     return templates.TemplateResponse(request, "queue.html", {
-        "p": p, "items": items, "tab": "queue", "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps, "kit_done": kit_done,
+        "p": p, "items": items, "tab": "queue", "pager": pager, "show": show, "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps, "kit_done": kit_done,
         "biz": {k: v for k, v in {**project_cfg(p)["business"],
                                   "business_name": project_cfg(p)["business"].get("business_name") or p.name}.items() if v},
         "compose": {i.id: _compose_url(db, i) for i in items},
@@ -847,11 +854,36 @@ def audit_page(request: Request, page: int = 1, db: Session = Depends(get_db)):
 
 # ------------------------------------------------------------------ outreach & PR
 @app.get("/p/{pid}/outreach", response_class=HTMLResponse)
-def outreach_page(pid: int, request: Request, page: int = 1, db: Session = Depends(get_db)):
+def outreach_page(pid: int, request: Request, page: int = 1, status: str = "", label: str = "", search: str = "",
+                  linked: str = "", db: Session = Depends(get_db)):
     p = _project(db, pid)
-    contacts, pager = paginate(select(Contact).where(Contact.project_id == pid).order_by(Contact.updated_at.desc()), page, db)
+    q = select(Contact).where(Contact.project_id == pid)
+    if status:
+        q = q.where(Contact.status == status)
+    if search.strip():
+        from sqlalchemy import or_
+
+        like = f"%{search.strip()[:100]}%"
+        q = q.where(or_(Contact.email.ilike(like), Contact.name.ilike(like), Contact.domain.ilike(like)))
+    if linked == "yes":
+        q = q.where(Contact.opportunity_id.is_not(None))
+    elif linked == "no":
+        q = q.where(Contact.opportunity_id.is_(None))
+    if label:  # label lives in JSON; filter in Python (only replied contacts carry one)
+        rows = [c for c in db.scalars(q.where(Contact.status == "replied").order_by(Contact.updated_at.desc()))
+                if (c.data or {}).get("label") == label]
+        page = max(1, page)
+        contacts = rows[(page - 1) * PER_PAGE: page * PER_PAGE]
+        pager = {"page": page, "pages": max(1, -(-len(rows) // PER_PAGE)), "total": len(rows)}
+    else:
+        contacts, pager = paginate(q.order_by(Contact.updated_at.desc()), page, db)
+    copps = {o.id: o for o in db.scalars(select(Opportunity).where(
+        Opportunity.id.in_([c.opportunity_id for c in contacts if c.opportunity_id] or [0])))}
+    from urllib.parse import urlencode
+
+    qs = urlencode({k: v for k, v in {"status": status, "label": label, "search": search, "linked": linked}.items() if v})
     prs = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.kind == "pr_request",
-                     Opportunity.status.in_(("new", "approved", "in_progress"))).order_by(Opportunity.created_at.desc())).all()
+                     Opportunity.status.in_(("new", "approved", "in_progress"))).order_by(Opportunity.created_at.desc()).limit(50)).all()
     counts = dict(db.execute(select(Contact.status, func.count()).where(Contact.project_id == pid).group_by(Contact.status)).all())
     cfg = project_cfg(p)
     ready = {"brevo": bool(get_settings().brevo_api_key), "sender": bool(cfg["sender"].get("email")),
@@ -860,6 +892,9 @@ def outreach_page(pid: int, request: Request, page: int = 1, db: Session = Depen
                                                                     PlatformAccount.platform == "imap_inbox")))}
     return templates.TemplateResponse(request, "outreach.html", {
         "p": p, "contacts": contacts, "prs": prs, "counts": counts, "ready": ready, "tab": "outreach", "pager": pager,
+        "f": {"status": status, "label": label, "search": search, "linked": linked}, "qs": ("&" + qs) if qs else "",
+        "copps": copps, "labels": ["interested", "question", "wants_payment", "link_placed", "not_interested",
+                                   "out_of_office", "other"],
         "full_contacts": authz.at_least(me(request), "manager")})
 
 
@@ -885,6 +920,26 @@ def add_contact(pid: int, request: Request, email: str = Form(...), name: str = 
         db.add(Contact(project_id=pid, email=e, name=name, source="manual", domain=e.split("@")[1],
                        opportunity_id=opp.id if opp and opp.project_id == pid else None, unsub_token=_s.token_urlsafe(24)))
         db.commit()
+    return _back(pid, "outreach")
+
+
+@app.post("/p/{pid}/contacts/import")
+async def import_contacts(pid: int, request: Request, file: UploadFile = File(...), create_opps: str = Form(""),
+                          db: Session = Depends(get_db)):
+    from app import outreach
+
+    if not authz.at_least(me(request), "manager"):
+        raise HTTPException(403, "Only managers can bulk-import contacts")
+    raw = await file.read(2_000_001)
+    if len(raw) > 2_000_000:
+        raise HTTPException(400, "File too large (max 2 MB, about 20,000 rows)")
+    p = _project(db, pid)
+    r = outreach.import_contacts_csv(db, p, raw.decode("utf-8", errors="replace"), create_opps=bool(create_opps))
+    db.add(Event(project_id=pid, user_id=me(request).id, level="action",
+                 message=(f"Imported {r['added']} contacts ({r['linked']} linked to opportunities, "
+                          f"{r['new_opportunities']} new sites added); {r['duplicates']} duplicates and "
+                          f"{r['invalid']} invalid rows skipped.")))
+    db.commit()
     return _back(pid, "outreach")
 
 

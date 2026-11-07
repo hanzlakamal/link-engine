@@ -533,3 +533,50 @@ def test_playbook_apply_collapses_existing_duplicates():
     assert s.scalar(select(Task.status).where(Task.project_id == p.id, Task.title == first.title)) == "done"
     assert pb.reset(s, p) == n
     s.rollback()
+
+
+def test_contact_csv_import_links_to_opportunities():
+    from sqlalchemy import select
+
+    from app.db import SessionLocal, init_db
+    from app.models import Contact, Opportunity, Project
+    from app.outreach import import_contacts_csv
+    init_db()
+    s = SessionLocal()
+    p = Project(name="Imp", domain="imp-test.com", type="ecommerce")
+    s.add(p)
+    s.flush()
+    s.add(Opportunity(project_id=p.id, kind="link_gap", key="mag", domain="www.coolmag.com", url="https://www.coolmag.com/x"))
+    s.flush()
+    csv_text = ("Email,Name,Website,Outlet\n"
+                "amy@coolmag.com,Amy,https://coolmag.com,Cool Mag\n"
+                "bob@newblog.net,Bob,newblog.net,New Blog\n"
+                "AMY@coolmag.com,Dup,,\n"
+                "not-an-email,X,,\n")
+    r = import_contacts_csv(s, p, csv_text)
+    assert r == {"added": 2, "linked": 2, "new_opportunities": 1, "duplicates": 1, "invalid": 1}
+    amy = s.scalar(select(Contact).where(Contact.project_id == p.id, Contact.email == "amy@coolmag.com"))
+    assert s.get(Opportunity, amy.opportunity_id).key == "mag"
+    assert import_contacts_csv(s, p, "carl@solo.org\n")["added"] == 1
+    s.rollback()
+
+
+def test_outreach_filters_import_and_queue_pages():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.models import Contact
+
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        c.post("/projects", data={"name": "F", "domain": "f-test.com"})
+        pid = [x for x in c.get("/api/projects").json() if x["domain"] == "f-test.com"][0]["id"]
+        r = c.post(f"/p/{pid}/contacts/import", data={"create_opps": "1"},
+                   files={"file": ("c.csv", b"email,name,website\nzed@zmag.com,Zed,zmag.com\nyan@ymag.com,Yan,ymag.com\n")})
+        assert r.status_code == 200
+        with session_scope() as s:
+            s.scalar(select(Contact).where(Contact.email == "zed@zmag.com")).status = "replied"
+        html = c.get(f"/p/{pid}/outreach?status=replied").text
+        assert "zmag.com" in html and "ymag.com" not in html
+        assert "Draft pitch" in c.get(f"/p/{pid}/outreach?search=ymag").text
+        assert c.get(f"/p/{pid}/queue?show=emails&page=2").status_code == 200

@@ -13,10 +13,13 @@
 {% for o in kit_opps[:25] %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="done"><button>Done</button></form></div>{% endfor %}
 {% if kit_done %}<details style="margin-top:8px"><summary>Done ({{ kit_done|length }})</summary>
-{% for o in kit_done %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
+{% for o in kit_done[:100] %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="new"><button title="Move back to the to-do list">Undo</button></form></div>{% endfor %}
 </details>{% endif %}
 </div></div>
+<form method="get" class="row" style="margin:12px 0">
+<select name="show"><option value="">all drafts</option>{% for v, l in [('emails','emails only'),('posts','posts &amp; articles'),('pending_approval','awaiting approval'),('approved','approved'),('scheduled','scheduled'),('failed','failed')] %}<option value="{{ v }}" {{ 'selected' if v==show }}>{{ l|safe }}</option>{% endfor %}</select>
+<button>Filter</button><small>{{ pager.total }} item(s)</small></form>
 {% for i in items %}
 <div class="card" style="margin-bottom:12px">
 <form method="post" action="/p/{{p.id}}/content/{{i.id}}">
@@ -49,4 +52,5 @@
 {% endif %}
 </div></form></div>
 {% else %}<div class="card muted">Nothing waiting. Draft an article above or click "Draft" on an opportunity.</div>{% endfor %}
+{% from "_pager.html" import pager as pg %}{{ pg(pager, ('&show=' ~ show) if show else '') }}
 {% endblock %}

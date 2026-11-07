@@ -11,14 +11,29 @@
 </div><small>Emails are drafted from opportunities ("Find contact" then "Draft"), approved in Link publishing, and sent within your warm-up limits during business hours. Every email has an unsubscribe link.</small></div>
 <div class="grid">
 <div class="card tbl"><h3>Contacts {% for k,v in counts.items() %}<span class="chip">{{ k }} {{ v }}</span> {% endfor %}</h3>
-<form method="post" action="/p/{{p.id}}/contacts" class="row" style="margin-bottom:8px"><input name="email" type="email" placeholder="editor@site.com" required><input name="name" placeholder="Name"><button>Add</button></form>
+<form method="get" class="row" style="margin-bottom:8px">
+<input name="search" value="{{ f.search }}" placeholder="Search email, name or site" style="min-width:200px">
+<select name="status"><option value="">any status</option>{% for s in ['new','contacted','replied','bounced','unsubscribed'] %}<option {{ 'selected' if s==f.status }}>{{ s }}</option>{% endfor %}</select>
+<select name="label"><option value="">any reply type</option>{% for l in labels %}<option {{ 'selected' if l==f.label }}>{{ l }}</option>{% endfor %}</select>
+<select name="linked"><option value="">linked or not</option><option value="yes" {{ 'selected' if f.linked=='yes' }}>linked to opportunity</option><option value="no" {{ 'selected' if f.linked=='no' }}>not linked</option></select>
+<button>Filter</button>{% if qs %}<a class="btn" href="/p/{{p.id}}/outreach">Clear</a>{% endif %}</form>
+<details style="margin-bottom:8px"><summary>Add contacts</summary>
+<form method="post" action="/p/{{p.id}}/contacts" class="row" style="margin:8px 0"><input name="email" type="email" placeholder="editor@site.com" required><input name="name" placeholder="Name"><button>Add one</button></form>
+<form method="post" action="/p/{{p.id}}/contacts/import" enctype="multipart/form-data" class="row" style="margin:8px 0">
+<input type="file" name="file" accept=".csv,.txt" required>
+<label><input type="checkbox" name="create_opps" value="1" checked> add new sites to Opportunities</label>
+<button>Upload CSV</button></form>
+<small>CSV columns (any order): <code>email</code>, <code>name</code> (or first_name/last_name), <code>website</code>, <code>outlet</code>, <code>notes</code>. A plain list of emails also works.
+Each contact is linked to the opportunity for the same site, so Draft works from either tab. Duplicates are skipped. Managers only.</small></details>
 <table><tr><th>Contact</th><th>Status</th><th>Last</th></tr>
-{% for c in contacts %}<tr><td>{{ c.name }} <small>{{ c.email if full_contacts else c.email|mask_email }}</small><br><small>{{ c.domain }} · {{ c.source }}</small></td>
+{% for c in contacts %}{% set o = copps.get(c.opportunity_id) %}<tr><td>{{ c.name }} <small>{{ c.email if full_contacts else c.email|mask_email }}</small><br><small>{{ c.domain }} · {{ c.source }}{% if c.data.outlet %} · {{ c.data.outlet }}{% endif %}</small>
+{% if o %}<br><small>Opportunity: <a href="/p/{{p.id}}/opportunities?search={{ o.domain|urlencode }}&status=">{{ o.title[:60] }}</a> ({{ o.status }})</small>
+{% if o.status == 'new' and c.status == 'new' %}<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="draft"><button>Draft pitch</button></form>{% endif %}{% endif %}</td>
 <td><span class="chip {{ 'win' if c.status=='replied' else ('warn' if c.status in ('bounced','unsubscribed') else '') }}">{{ c.status }}</span>
 {% if c.data.label %}<br><small>{{ c.data.label }}: {{ c.data.last_reply }}</small>{% endif %}</td>
 <td><small>{{ c.last_contacted.strftime('%b %d') if c.last_contacted else '–' }}</small></td></tr>
 {% else %}<tr><td colspan="3" class="muted">No contacts yet. Use "Find contact" on an opportunity.</td></tr>{% endfor %}</table>
-{% from "_pager.html" import pager as pg %}{{ pg(pager) }}{% if not full_contacts %}<small>Email addresses are masked for your role.</small>{% endif %}</div>
+{% from "_pager.html" import pager as pg %}{{ pg(pager, qs) }}{% if not full_contacts %}<small>Email addresses are masked for your role.</small>{% endif %}</div>
 <div class="card"><h3>Journalist requests</h3>
 {% for o in prs %}<div style="margin-bottom:10px"><b>{{ o.title }}</b> <small>{{ o.domain }} · deadline {{ o.data.deadline or '?' }}</small><br><small>{{ o.reason }}</small><br>
 <small>How to respond: {{ o.data.how_to_respond }}</small>

@@ -213,3 +213,67 @@ def read_inbox(account: PlatformAccount, wanted, days: int = 14, skip_ids: set |
                     "message_id": mid})
     m.logout()
     return out
+
+
+EMAIL_RE = re.compile(r"[^@\s,;<>]+@[^@\s,;<>]+\.[a-z]{2,}", re.I)
+
+
+def import_contacts_csv(s: Session, project: Project, text: str, create_opps: bool = True, max_rows: int = 20000) -> dict:
+    """Bulk-add contacts from a CSV (or one email per line).
+
+    Columns (any subset, any order, case-insensitive): email, name / first_name + last_name, website / url / domain,
+    outlet / publication, notes. Each contact is linked to the opportunity for the same site (matched by root domain)
+    so Opportunities and Outreach stay in sync. Sites with no opportunity get one (kind 'outreach_list') when
+    create_opps is on, so you can Draft from either tab.
+    """
+    import csv
+    import io
+    import secrets as _s
+
+    from app.classify import domain_of, root_domain
+    from app.models import Opportunity
+
+    text = text.lstrip("\ufeff")
+    first = text.splitlines()[0] if text.strip() else ""
+    has_header = "@" not in first
+    rows = csv.DictReader(io.StringIO(text)) if has_header else ({"email": ln} for ln in text.splitlines())
+    opps = {}
+    for o in s.scalars(select(Opportunity).where(Opportunity.project_id == project.id,
+                                                 Opportunity.status != "rejected").order_by(Opportunity.score)):
+        if o.domain:
+            opps[root_domain(domain_of(o.domain))] = o  # highest score wins (ordered ascending)
+    existing = {e.lower() for e in s.scalars(select(Contact.email).where(Contact.project_id == project.id))}
+    out = {"added": 0, "linked": 0, "new_opportunities": 0, "duplicates": 0, "invalid": 0}
+    for i, row in enumerate(rows):
+        if i >= max_rows:
+            break
+        low = {(k or "").strip().lower().replace(" ", "_"): (v or "").strip() for k, v in row.items() if k}
+        m = EMAIL_RE.search(low.get("email") or low.get("email_address") or low.get("e-mail") or "")
+        if not m:
+            out["invalid"] += 1
+            continue
+        e = m.group(0).lower()
+        if e in existing:
+            out["duplicates"] += 1
+            continue
+        existing.add(e)
+        name = low.get("name") or " ".join(x for x in (low.get("first_name", ""), low.get("last_name", "")) if x)
+        site = low.get("website") or low.get("url") or low.get("domain") or low.get("site") or ""
+        host = domain_of(site) if site else e.split("@")[1]
+        rd = root_domain(host)
+        opp = opps.get(rd)
+        if opp is None and create_opps and site:
+            opp = Opportunity(project_id=project.id, kind="outreach_list", key=rd, domain=host,
+                              url=site if "://" in site else f"https://{host}", score=50,
+                              title=low.get("outlet") or low.get("publication") or host,
+                              reason=low.get("notes", "")[:500] or "Imported contact list", data={"source": "import"})
+            s.add(opp)
+            s.flush()
+            opps[rd] = opp
+            out["new_opportunities"] += 1
+        s.add(Contact(project_id=project.id, email=e, name=name[:200], domain=host, source="import",
+                      opportunity_id=opp.id if opp else None, unsub_token=_s.token_urlsafe(24),
+                      data={"outlet": low.get("outlet") or low.get("publication", ""), "notes": low.get("notes", "")[:500]}))
+        out["added"] += 1
+        out["linked"] += 1 if opp else 0
+    return out
