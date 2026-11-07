@@ -28,6 +28,33 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    role: Mapped[str] = mapped_column(String(20), default="builder")  # client | builder | manager | admin
+    password_hash: Mapped[str] = mapped_column(String(200), default="")
+    totp_secret: Mapped[str] = mapped_column(Text, default="")  # encrypted; empty = 2FA off
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    memberships: Mapped[list[ProjectMember]] = relationship(back_populates="user", cascade="all, delete-orphan",
+                                                            lazy="selectin")
+
+
+class ProjectMember(Base):
+    """Which projects a builder/client can see. Managers and admins see all projects."""
+
+    __tablename__ = "project_members"
+    __table_args__ = (UniqueConstraint("user_id", "project_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+
+    user: Mapped[User] = relationship(back_populates="memberships")
+
+
 class Project(TimestampMixin, Base):
     __tablename__ = "projects"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -107,6 +134,7 @@ class Opportunity(TimestampMixin, Base):
     # new -> approved -> in_progress -> done | rejected | snoozed
     status: Mapped[str] = mapped_column(String(20), default="new", index=True)
     reason: Mapped[str] = mapped_column(Text, default="")  # why it scored / why rejected
+    assigned_to: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
@@ -127,6 +155,9 @@ class ContentItem(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), default="pending_approval", index=True)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_url: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    published_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
@@ -155,6 +186,7 @@ class Task(TimestampMixin, Base):
     detail: Mapped[str] = mapped_column(Text, default="")
     owner: Mapped[str] = mapped_column(String(20), default="approve")
     status: Mapped[str] = mapped_column(String(20), default="todo", index=True)  # todo | doing | done | skipped
+    assigned_to: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
 
@@ -171,6 +203,7 @@ class EarnedLink(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), default="live")  # live | lost | pending
     last_checked: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     content_item_id: Mapped[int | None] = mapped_column(ForeignKey("content_items.id", ondelete="SET NULL"))
+    credited_to: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
 class Job(TimestampMixin, Base):
@@ -194,7 +227,8 @@ class Event(Base):
     __tablename__ = "events"
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    level: Mapped[str] = mapped_column(String(10), default="info")  # info | win | warn | action
+    level: Mapped[str] = mapped_column(String(10), default="info")  # info | win | warn | action | audit
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     data: Mapped[dict] = mapped_column(JSON, default=dict)

@@ -31,11 +31,14 @@ class Settings(BaseSettings):
 
     worker_poll_seconds: int = 5
     job_max_attempts: int = 1  # 1 = never auto-retry; failed jobs wait for a manual re-run
+    app_name: str = "Buzz Scouts Engine"
+    require_2fa_for_admins: bool = False
 
 
 # Editable from the UI (Global settings). DATABASE_URL / SECRET_KEY stay env-only (bootstrap).
 SECRET_KEYS = ("anthropic_api_key", "ahrefs_api_key", "dataforseo_login", "dataforseo_password", "admin_password")
-PLAIN_KEYS = ("model_default", "model_premium", "worker_poll_seconds", "job_max_attempts")
+PLAIN_KEYS = ("app_name", "model_default", "model_premium", "worker_poll_seconds", "job_max_attempts",
+              "require_2fa_for_admins")
 _cache: dict = {"t": 0.0, "v": None}
 
 
@@ -59,7 +62,8 @@ def get_settings() -> Settings:
                 if row.key in SECRET_KEYS and row.value:
                     setattr(s, row.key, decrypt(row.value))
                 elif row.key in PLAIN_KEYS and row.value != "":
-                    setattr(s, row.key, type(getattr(s, row.key))(row.value))
+                    cur = getattr(s, row.key)
+                    setattr(s, row.key, row.value in ("1", "true", "on", "True") if isinstance(cur, bool) else type(cur)(row.value))
     except Exception:  # noqa: BLE001  (table missing on first boot, etc.)
         pass
     _cache.update(t=now, v=s)
@@ -111,6 +115,7 @@ DEFAULTS: dict = {
     "automation": {
         # per-channel: "approve" (queue) | "auto" (publish without review) | "off"
         "default_mode": "approve",
+        "builders_can_approve": True,  # False = only managers/admins can approve content
         "channels": {},
     },
     "limits": {

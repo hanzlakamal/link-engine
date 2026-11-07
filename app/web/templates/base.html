@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Link Engine{% endblock %}</title>
+<title>{% block title %}{{ app_name() }}{% endblock %}</title>
 <style>
 :root{--bg:#f7f7f5;--panel:#fff;--ink:#1d1d1b;--muted:#6b6b66;--line:#e4e3de;--accent:#2b59c3;--win:#1f8a4c;--warn:#b26b00;--bad:#b3261e;--chip:#efeee9}
 @media (prefers-color-scheme:dark){:root{--bg:#141413;--panel:#1d1d1b;--ink:#ecebe6;--muted:#a3a29b;--line:#33322e;--accent:#7aa2ff;--win:#4cc27e;--warn:#e0a040;--bad:#ef6b62;--chip:#2a2926}}
@@ -30,7 +30,10 @@ form.inline{display:inline}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:
 </style>
 </head>
 <body>
-<header><a class="brand" href="/">Link Engine</a>{% block crumbs %}{% endblock %}<span style="flex:1"></span><a href="/settings">Global settings</a> <a href="/logout" class="muted">Log out</a></header>
+<header><a class="brand" href="/">{{ app_name() }}</a>{% block crumbs %}{% endblock %}<span style="flex:1"></span>{% set cu = request.state.user if request.state is defined and request.state.user is defined else none %}
+{% if cu %}<a href="/account"><small>{{ cu.name or cu.email }} · {{ cu.role }}</small></a>
+{% if cu.role == 'admin' %}<a href="/team">Team</a> <a href="/settings">Global settings</a>{% endif %}
+<a href="/logout" class="muted">Log out</a>{% endif %}</header>
 <main>
 {% if p is defined and p %}
 <h2 style="margin:0">{{ p.name }} <small>{{ p.domain }} · {{ p.stage }}</small></h2>

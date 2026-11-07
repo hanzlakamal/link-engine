@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block body %}
+<h2 style="margin-top:0">Team <small>last {{ days }} days · <a href="?days=7">7d</a> <a href="?days=30">30d</a> <a href="?days=365">1y</a> · <a href="/audit">Audit log</a></small></h2>
+{% if error %}<div class="banner">{{ error }}</div>{% endif %}
+<div class="card tbl" style="margin-bottom:16px"><table>
+<tr><th>Person</th><th>Role</th><th>2FA</th><th>Projects</th><th>Open assigned</th><th>Drafted</th><th>Approved</th><th>Published</th><th>Links earned</th><th>Live</th><th>Last login</th></tr>
+{% for u in users %}{% set st = stats.get(u.id, {}) %}
+<tr style="{{ 'opacity:.5' if not u.active }}"><td><b>{{ u.name or u.email }}</b><br><small>{{ u.email }}</small></td>
+<td><span class="chip">{{ u.role }}</span></td><td>{{ '✓' if u.totp_secret else '–' }}</td>
+<td><small>{% if u.role in ('admin','manager') %}all{% else %}{% for m in u.memberships %}{{ (projects|selectattr('id','equalto',m.project_id)|first).name }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</small></td>
+<td>{{ st.open or 0 }}</td><td>{{ st.drafted or 0 }}</td><td>{{ st.approved or 0 }}</td><td>{{ st.published or 0 }}</td>
+<td><b>{{ st.links or 0 }}</b></td><td>{{ st.links_live or 0 }}</td><td><small>{{ u.last_login.strftime('%b %d %H:%M') if u.last_login else '–' }}</small></td></tr>{% endfor %}
+</table></div>
+<div class="grid">
+{% for u in users + [None] %}
+<div class="card"><h3>{{ 'Edit ' + (u.name or u.email) if u else 'Add person' }}</h3>
+<form method="post" action="/team">
+<input type="hidden" name="user_id" value="{{ u.id if u else '' }}">
+<p><input name="email" type="email" value="{{ u.email if u else '' }}" placeholder="Email" required style="width:100%" {{ 'readonly' if u }}></p>
+<p><input name="name" value="{{ u.name if u else '' }}" placeholder="Name" style="width:100%"></p>
+<p class="row"><select name="role">{% for r in ROLES %}<option {{ 'selected' if (u and u.role==r) or (not u and r=='builder') }}>{{ r }}</option>{% endfor %}</select>
+<label><input type="checkbox" name="active" {{ 'checked' if not u or u.active }}> active</label>
+{% if u and u.totp_secret %}<label><input type="checkbox" name="reset_2fa"> reset 2FA</label>{% endif %}</p>
+<p><small>Projects (builders and clients only see these):</small><br>{% for p in projects %}
+<label style="display:block"><input type="checkbox" name="project_ids" value="{{ p.id }}" {{ 'checked' if u and p.id in u.memberships|map(attribute='project_id')|list }}> {{ p.name }}</label>{% endfor %}</p>
+<p><input type="password" name="password" placeholder="{{ 'New password (optional, 12+ chars)' if u else 'Password (12+ chars)' }}" autocomplete="new-password" style="width:100%"></p>
+<button class="primary">Save</button></form></div>{% endfor %}
+</div>{% endblock %}

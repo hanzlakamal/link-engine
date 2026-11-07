@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block body %}
+<h2 style="margin-top:0">My account <small>{{ u.email }} · {{ u.role }}</small></h2>
+{% if need2fa %}<div class="banner">Admins must turn on two-factor authentication before continuing.</div>{% endif %}
+{% if msg %}<div class="banner">{{ msg }}</div>{% endif %}
+<div class="grid">
+<div class="card"><h3>Change password</h3>
+<form method="post" action="/account"><input type="hidden" name="action" value="password">
+<p><input type="password" name="current" placeholder="Current password" required style="width:100%" autocomplete="current-password"></p>
+<p><input type="password" name="new" placeholder="New password (12+ characters)" required style="width:100%" autocomplete="new-password"></p>
+<button class="primary">Change</button> <small>Logs you out on other devices.</small></form></div>
+<div class="card"><h3>Two-factor authentication</h3>
+{% if u.totp_secret %}<p><span class="chip win">ON</span></p>
+<form method="post" action="/account"><input type="hidden" name="action" value="2fa_disable">
+<p><input type="password" name="current" placeholder="Current password" required style="width:100%"></p><button>Turn off</button></form>
+{% elif setup %}
+<p>1. In Google Authenticator / 1Password / Authy choose <b>Enter a setup key</b>:</p>
+<p><code style="font-size:15px;word-break:break-all">{{ setup }}</code></p>
+<p><small>Or open on your phone: <a href="{{ uri }}">{{ uri[:60] }}…</a></small></p>
+<form method="post" action="/account"><input type="hidden" name="action" value="2fa_enable"><input type="hidden" name="secret" value="{{ setup }}">
+<p><input name="code" inputmode="numeric" placeholder="2. Enter the 6-digit code" required style="width:100%"></p>
+<p><input type="password" name="current" placeholder="Current password" required style="width:100%"></p><button class="primary">Turn on</button></form>
+{% else %}<p><span class="chip warn">OFF</span></p>
+<form method="post" action="/account"><input type="hidden" name="action" value="2fa_start">
+<p><input type="password" name="current" placeholder="Current password" required style="width:100%"></p><button class="primary">Set up 2FA</button></form>{% endif %}
+</div></div>{% endblock %}

@@ -44,7 +44,10 @@ def _json(text: str) -> dict:
     return json.loads(m.group(0))
 
 
-def fetch_site_text(domain: str, paths=("/", "/pages/about", "/pages/about-us", "/about")) -> str:
+def fetch_site_text(domain: str, paths=("/", "/about", "/about-us", "/pages/about", "/pages/about-us")) -> str:
+    from app.auth import assert_public_url
+
+    assert_public_url(f"https://{domain}/")
     chunks = []
     with httpx.Client(timeout=20, follow_redirects=True, headers={"User-Agent": "LinkEngineBot/2.0"}) as c:
         for p in paths:

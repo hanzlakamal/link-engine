@@ -1,6 +1,13 @@
 {% extends "base.html" %}{% block body %}
-<div class="card" style="max-width:360px;margin:60px auto">
-<h3>Sign in</h3>
-{% if error %}<p style="color:var(--bad)">Wrong password.</p>{% endif %}
-<form method="post" action="/login"><input type="password" name="password" placeholder="Admin password" autofocus style="width:100%"><p><button class="primary">Sign in</button></p></form>
+<div class="card" style="max-width:380px;margin:60px auto">
+<h3>Sign in to {{ app_name() }}</h3>
+{% if first %}<p class="banner">First run: enter <b>your email</b> and the <b>ADMIN_PASSWORD</b> to create the admin account.</p>{% endif %}
+{% if error == 'locked' %}<p style="color:var(--bad)">Too many attempts. Try again in 15 minutes.</p>
+{% elif error in ('code','need_code') %}<p style="color:var(--bad)">{{ 'Enter' if error=='need_code' else 'Wrong' }} 2FA code.</p>
+{% elif error %}<p style="color:var(--bad)">Wrong email or password.</p>{% endif %}
+<form method="post" action="/login">
+<p><input name="email" type="email" placeholder="Email" autofocus required style="width:100%" autocomplete="username"></p>
+<p><input type="password" name="password" placeholder="Password" required style="width:100%" autocomplete="current-password"></p>
+<p><input name="code" inputmode="numeric" placeholder="2FA code (if enabled)" style="width:100%" autocomplete="one-time-code"></p>
+<p><button class="primary">Sign in</button></p></form>
 </div>{% endblock %}

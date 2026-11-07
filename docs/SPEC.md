@@ -83,3 +83,13 @@ Modules: foundation and measurement, store, social, creators, links, PR, communi
 - **v1 — Self-publish engine:** projects and brand voice, competitor discovery and backlink pull, classifying links as self-publishable vs editorial, content generation and approval queue, API posting and assisted posting, link tracking, dashboard, digest.
 - **v2 — Editorial:** Brevo outreach, rate limiting and warm-up, reply sorting, link gap, mentions, broken links, resource pages.
 - **v3 — Digital PR:** journalist-request monitoring, expert-answer drafting, chat alerts.
+
+## Platform structure (decided 2026-11-07)
+One platform with **two modules** sharing users, projects, brand voice, approvals and Claude prompts:
+1. **Links:** self-publish (profiles, directories, deal/affiliate listings, Web 2.0, own WordPress hub), outreach + PR (contacts, Brevo sequences, replies, journalist requests, gift guides), link monitor.
+2. **Social & Community:** Pinterest, Facebook, Instagram, Reddit, Quora (TikTok later). The Pest Help `traffic-engine` (Node, Telegram approvals, Reddit RSS finder, Pinterest) **is reused as-is, not rebuilt**: extend its existing code for multiple projects and connect it to this dashboard through a small API.
+
+Project **type** (ecommerce / affiliate / local / saas) switches playbooks and link strategies.
+**Team:** roles admin / manager / builder / client; every draft, approval, publish and earned link is credited to a user; team dashboard shows progress per person.
+**Build order:** 1) users, roles, credit tracking 2) project types + Pest Help project 3) outreach + PR 4) self-publish publishing + link monitor 5) Social & Community module.
+**Human time:** about 1 hr/day per site (approvals, Reddit/Quora posting, outreach replies) + one-time account and profile setup.

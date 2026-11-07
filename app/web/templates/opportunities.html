@@ -2,17 +2,23 @@
 <form class="row" method="get" style="margin-bottom:12px">
 <select name="kind"><option value="">All kinds</option>{% for k in kinds %}<option {{ 'selected' if k==kind }}>{{ k }}</option>{% endfor %}</select>
 <select name="status">{% for s in ['new','approved','in_progress','done','snoozed','rejected',''] %}<option value="{{s}}" {{ 'selected' if s==status }}>{{ s or 'any status' }}</option>{% endfor %}</select>
+<label><input type="checkbox" name="mine" value="1" {{ 'checked' if mine }}> only mine</label>
 <button>Filter</button></form>
+{% if is_manager %}<form method="post" action="/p/{{p.id}}/opportunities/auto-assign" style="margin-bottom:12px"><button>Auto-assign unassigned (round-robin)</button></form>{% endif %}
 <div class="card tbl"><table>
-<tr><th>Score</th><th>Kind</th><th>Opportunity</th><th>Why</th><th>Comp.</th><th></th></tr>
+<tr><th>Score</th><th>Kind</th><th>Opportunity</th><th>Why</th><th>Comp.</th><th>Assigned</th><th></th></tr>
 {% for o in opps %}<tr>
 <td><b>{{ o.score }}</b></td><td><span class="chip">{{ o.kind }}</span>{% if o.data.link %}<br><small>{{ o.data.link }} · {{ o.data.posting }}</small>{% endif %}</td>
 <td>{{ o.title }}<br><a href="{{ o.url }}" target="_blank" rel="noopener"><small>{{ o.url[:80] }}</small></a></td>
 <td><small>{{ o.reason[:140] }}</small></td><td>{{ o.competitors_count }}</td>
+<td><form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="assign">
+<select name="user_id" onchange="this.form.submit()"><option value="">—</option>
+{% for t in (team if is_manager else [me]) %}<option value="{{ t.id }}" {{ 'selected' if o.assigned_to==t.id }}>{{ t.name or t.email }}</option>{% endfor %}
+{% if not is_manager and o.assigned_to and o.assigned_to != me.id %}<option selected disabled>{{ names.get(o.assigned_to) }}</option>{% endif %}</select></form></td>
 <td style="white-space:nowrap">
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="draft"><button class="primary" title="Approve and let Claude draft content">Draft</button></form>
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="snoozed"><button>Later</button></form>
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="rejected"><button>✕</button></form>
 </td></tr>
-{% else %}<tr><td colspan="6" class="muted">No opportunities with this filter.</td></tr>{% endfor %}
+{% else %}<tr><td colspan="7" class="muted">No opportunities with this filter.</td></tr>{% endfor %}
 </table></div>{% endblock %}

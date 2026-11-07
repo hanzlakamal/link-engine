@@ -93,7 +93,7 @@ def _draft(s, project, payload):
                            platform="email" if opp.kind != "self_publish" else platform,
                            content_type=ctype, goal=goal, target_url=payload.get("target_url", ""),
                            premium=opp.kind in ("gift_guide", "pr_request"))
-    s.add(ContentItem(project_id=project.id, opportunity_id=opp.id,
+    s.add(ContentItem(project_id=project.id, opportunity_id=opp.id, created_by=payload.get("user_id"),
                       channel="email" if opp.kind != "self_publish" else platform, content_type=ctype,
                       title=out.get("title", ""), body=out.get("body", ""),
                       data={"notes": out.get("notes_for_reviewer", "")}))

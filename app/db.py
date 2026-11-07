@@ -33,9 +33,29 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def init_db() -> None:
     """Create tables. TODO(upgrade): switch to Alembic migrations once the schema settles."""
+    from sqlalchemy import inspect, text
+
     from app import models  # noqa: F401  (registers tables)
 
     Base.metadata.create_all(engine)
+    # Forward-only mini-migration: add new columns to existing tables (names come from our models only).
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            existing = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                ctype = col.type.compile(dialect=engine.dialect)
+                default = ""
+                arg = getattr(col.default, "arg", None)
+                if isinstance(arg, bool):
+                    default = f" DEFAULT {'TRUE' if arg else 'FALSE'}" if engine.dialect.name == "postgresql" else f" DEFAULT {int(arg)}"
+                elif isinstance(arg, (int, float)):
+                    default = f" DEFAULT {arg}"
+                elif isinstance(arg, str):
+                    default = " DEFAULT '" + arg.replace("'", "''") + "'"
+                conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {ctype}{default}"))
 
 
 @contextmanager

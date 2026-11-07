@@ -188,7 +188,7 @@ def test_web_flow():
 
     with TestClient(app) as c:
         assert c.get("/", follow_redirects=False).status_code == 303
-        c.post("/login", data={"password": "pw"})
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
         r = c.post("/projects", data={"name": "T-Shirt Crisis", "domain": "https://www.tshirtcrisis.com/",
                                       "competitors": "crazydogtshirts.com"})
         assert r.status_code == 200 and "tshirtcrisis.com" in r.text
@@ -265,7 +265,7 @@ def test_global_settings_ui_overrides_env():
     from app.main import app
 
     with TestClient(app) as c:
-        c.post("/login", data={"password": "pw"})
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
         assert c.get("/settings").status_code == 200
         c.post("/settings", data={"ahrefs_api_key": "ui-key-123", "model_default": "claude-haiku-5-5",
                                   "worker_poll_seconds": "7", "job_max_attempts": "1"})
@@ -276,3 +276,65 @@ def test_global_settings_ui_overrides_env():
         r = c.post("/p/0/settings", data={})
         assert r.status_code == 404
     invalidate_settings()
+
+
+def test_security_roles_csrf_2fa_lockout():
+    from fastapi.testclient import TestClient
+
+    from app import auth as authz
+    from app.db import session_scope as ss
+    from app.main import app
+    from app.models import ProjectMember, User
+
+    authz._fails.clear()
+    with TestClient(app) as admin:
+        assert admin.post("/login", data={"email": "boss@test.com", "password": "wrong"}).url.path == "/login"
+        admin.post("/login", data={"email": "boss@test.com", "password": "pw"})  # first run -> admin
+        r = admin.get("/")
+        assert r.status_code == 200 and r.headers["x-frame-options"] == "DENY" and "frame-ancestors" in r.headers["content-security-policy"]
+        admin.post("/projects", data={"name": "A", "domain": "a.com"})
+        admin.post("/projects", data={"name": "B", "domain": "b.com"})
+        # forged cross-site POST is blocked
+        assert admin.post("/projects", data={"name": "X", "domain": "x.com"},
+                          headers={"origin": "https://evil.example"}).status_code == 403
+        # weak passwords rejected for new users
+        assert "error" in str(admin.post("/team", data={"email": "w@test.com", "password": "short", "role": "builder"}).url)
+        with ss() as s:
+            pa = s.scalar(select(Project).where(Project.domain == "a.com")).id
+            pb = s.scalar(select(Project).where(Project.domain == "b.com")).id
+            u = User(email="b@test.com", name="Builder", role="builder", password_hash=authz.hash_password("builder-pass-123"))
+            s.add(u)
+            s.flush()
+            s.add(ProjectMember(user_id=u.id, project_id=pa))
+    with TestClient(app) as b:
+        b.post("/login", data={"email": "b@test.com", "password": "builder-pass-123"})
+        assert b.get(f"/p/{pa}").status_code == 200
+        assert b.get(f"/p/{pb}").status_code == 403          # not a member
+        assert b.get("/team").status_code == 403             # admin only
+        assert b.get("/settings").status_code == 403
+        assert b.post(f"/p/{pa}/settings", data={}).status_code == 403  # managers only
+        assert b.post("/projects", data={"name": "Y", "domain": "y.com"}).status_code == 403
+        # 2FA: enable, then login requires the code
+        secret = authz.new_totp_secret()
+        b.post("/account", data={"action": "2fa_enable", "secret": secret, "code": authz.totp_now(secret),
+                                 "current": "builder-pass-123"})
+    with TestClient(app) as b2:
+        assert b2.post("/login", data={"email": "b@test.com", "password": "builder-pass-123"}).url.params.get("error") == "need_code"
+        b2.post("/login", data={"email": "b@test.com", "password": "builder-pass-123", "code": authz.totp_now(secret)})
+        assert b2.get(f"/p/{pa}").status_code == 200
+    # lockout after 5 failures for an email
+    with TestClient(app) as x:
+        for _ in range(5):
+            x.post("/login", data={"email": "b@test.com", "password": "nope"})
+        assert x.post("/login", data={"email": "b@test.com", "password": "builder-pass-123"}).url.params.get("error") == "locked"
+    authz._fails.clear()
+
+
+def test_ssrf_guard_and_totp():
+    from app import auth as authz
+
+    for bad in ("http://127.0.0.1/", "http://169.254.169.254/latest", "file:///etc/passwd", "http://10.0.0.5/"):
+        with pytest.raises(ValueError):
+            authz.assert_public_url(bad)
+    s = authz.new_totp_secret()
+    assert authz.verify_totp(s, authz.totp_now(s)) and not authz.verify_totp(s, "000000" if authz.totp_now(s) != "000000" else "111111")

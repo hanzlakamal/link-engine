@@ -8,10 +8,15 @@
 <input type="password" name="{{ k }}" autocomplete="off" placeholder="{{ 'Replace…' if status[k] else 'Paste key' }}" style="width:100%">
 <label class="muted"><input type="checkbox" name="clear_{{ k }}"> clear saved value</label></p>{% endfor %}
 <p><button class="primary">Save</button></p></div>
+<div class="card"><h3>Branding &amp; security</h3>
+<p><label>App name</label><br><input name="app_name" value="{{ s.app_name }}" style="width:100%"></p>
+<p><label><input type="checkbox" name="require_2fa_for_admins" {{ 'checked' if s.require_2fa_for_admins }}> Require 2FA for admins</label></p>
+<p><label>Worker poll interval (seconds)</label><br><input type="number" name="worker_poll_seconds" value="{{ s.worker_poll_seconds }}"></p>
+<p><label>Job attempts (1 = never auto-retry)</label><br><input type="number" name="job_max_attempts" value="{{ s.job_max_attempts }}" min="1" max="5"></p>
+<p><button class="primary">Save</button></p></div>
 <div class="card"><h3>AI models</h3>
 <p><label>Default (high volume)</label><br><input name="model_default" value="{{ s.model_default }}" style="width:100%"></p>
 <p><label>Premium (PR pitches, pillar articles, brand voice)</label><br><input name="model_premium" value="{{ s.model_premium }}" style="width:100%"></p>
-<h3>Admin password</h3>
-<p><input type="password" name="admin_password" autocomplete="new-password" placeholder="New password (leave empty to keep)" style="width:100%"><br><small>You'll be logged out after changing it.</small></p>
+<p><small>Your own password and 2FA: <a href="/account">My account</a>. Other people: <a href="/team">Team</a>.</small></p>
 <p><button class="primary">Save</button></p></div>
 </div></form>{% endblock %}
