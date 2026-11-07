@@ -1,6 +1,7 @@
 // T-Shirt Crisis (funny graphic tees, US). Same engine, different targets. Edit freely.
 module.exports = {
   site: "https://www.tshirtcrisis.com",
+  pinsUrl: "",              // add a pins.json URL here to enable Pinterest auto-posting for this brand
   scanEveryMinutes: Number(process.env.SCAN_EVERY_MINUTES || 60),
   maxAgeHours: 24,
   maxComments: 60,

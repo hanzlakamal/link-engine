@@ -4,6 +4,7 @@ const project = (process.env.PROJECT || "").replace(/[^a-z0-9_-]/gi, "");
 if (project && project !== "thepesthelp") { module.exports = require("../configs/" + project); return; }
 module.exports = {
   site: "https://thepesthelp.com",
+  pinsUrl: "https://thepesthelp.com/pins/pins.json",
   scanEveryMinutes: Number(process.env.SCAN_EVERY_MINUTES || 30),
   maxAgeHours: 24,          // ignore older threads
   maxComments: 40,          // crowded threads rarely get seen

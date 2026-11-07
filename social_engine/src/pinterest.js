@@ -1,6 +1,6 @@
-// Posts pins from https://thepesthelp.com/pins/pins.json via the Pinterest API v5.
+// Posts pins from the brand's pins.json (config.pinsUrl) via the Pinterest API v5. No pinsUrl = Pinterest off.
 // Needs PINTEREST_TOKEN (pins:write, boards:read). Until your app has Standard access, use the bulk CSV instead.
-const store = require("./store"), tg = require("./telegram");
+const store = require("./store"), tg = require("./telegram"), cfg = require("./config");
 const API = "https://api.pinterest.com/v5", H = () => ({ Authorization: `Bearer ${process.env.PINTEREST_TOKEN}`, "Content-Type": "application/json" });
 const PER_DAY = Number(process.env.PINS_PER_DAY || 3);
 async function boards() {
@@ -8,11 +8,11 @@ async function boards() {
   return Object.fromEntries((await r.json()).items.map((b) => [b.name.toLowerCase(), b.id]));
 }
 async function postDue() {
-  if (!process.env.PINTEREST_TOKEN) return 0;
+  if (!process.env.PINTEREST_TOKEN || !cfg.pinsUrl) return 0;
   store.db.pins ||= {}; const today = new Date().toISOString().slice(0, 10);
   const doneToday = Object.values(store.db.pins).filter((d) => d.startsWith(today)).length;
   if (doneToday >= PER_DAY) return 0;
-  const pins = await (await fetch("https://thepesthelp.com/pins/pins.json")).json();
+  const pins = await (await fetch(cfg.pinsUrl)).json();
   const b = await boards(); let n = 0;
   for (const p of pins) {
     if (store.db.pins[p.file] || doneToday + n >= PER_DAY) continue;
