@@ -317,7 +317,8 @@ def _back_to_list(request: Request, pid: int) -> RedirectResponse:
 
     ref = urlparse(request.headers.get("referer", ""))
     base = f"/p/{pid}/opportunities"
-    target = ref.path + (f"?{ref.query}" if ref.query else "") if ref.path == base else base
+    same_project = ref.path == base or ref.path.startswith(f"/p/{pid}/") or ref.path == f"/p/{pid}"
+    target = ref.path + (f"?{ref.query}" if ref.query else "") if same_project else base
     return RedirectResponse(target, status_code=303)
 
 
@@ -347,9 +348,16 @@ def auto_assign(pid: int, request: Request, db: Session = Depends(get_db)):
 
 @app.get("/p/{pid}/opportunities", response_class=HTMLResponse)
 def opportunities_page(pid: int, request: Request, kind: str = "", status: str = "new", mine: int = 0, page: int = 1,
+                       search: str = "",
                        db: Session = Depends(get_db)):
     p = _project(db, pid)
     q = select(Opportunity).where(Opportunity.project_id == pid)
+    if search.strip():
+        from sqlalchemy import or_
+
+        like = f"%{search.strip()[:100]}%"
+        q = q.where(or_(Opportunity.domain.ilike(like), Opportunity.url.ilike(like), Opportunity.title.ilike(like),
+                        Opportunity.platform.ilike(like)))
     if mine or _builder_only_own(me(request)):
         q = q.where(Opportunity.assigned_to == me(request).id)
     if kind:
@@ -360,7 +368,7 @@ def opportunities_page(pid: int, request: Request, kind: str = "", status: str =
     kinds = db.scalars(select(Opportunity.kind).where(Opportunity.project_id == pid).distinct()).all()
     return templates.TemplateResponse(request, "opportunities.html", {
         "p": p, "opps": opps, "kinds": kinds, "kind": kind, "status": status, "mine": mine, "tab": "opportunities",
-        "pager": pager,
+        "pager": pager, "search": search,
         "team": _team(db, pid), "names": {u.id: u.name or u.email for u in db.scalars(select(User))},
         "is_manager": authz.at_least(me(request), "manager"), "me": me(request)})
 

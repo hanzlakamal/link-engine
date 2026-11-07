@@ -457,3 +457,25 @@ def test_masking_pagination_person_links():
         pl = a.get(f"/team/{bid}/links").text
         assert "https://x.com/post" in pl and "avg quality 80" in pl
     authz._fails.clear()
+
+
+def test_opportunity_search_and_done_returns_to_queue():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        c.post("/projects", data={"name": "S", "domain": "s.com"})
+        pid = c.get("/api/projects").json()[0]["id"]
+        with session_scope() as s:
+            s.add(Opportunity(project_id=pid, kind="self_publish", key="birdeye", title="Birdeye: x", domain="birdeye.com"))
+            s.add(Opportunity(project_id=pid, kind="self_publish", key="bbb", title="BBB: x", domain="bbb.org"))
+            s.flush()
+            oid = s.scalar(select(Opportunity).where(Opportunity.key == "birdeye")).id
+        html = c.get(f"/p/{pid}/opportunities?search=bird&status=").text
+        assert "Birdeye" in html and "BBB: x" not in html
+        r = c.post(f"/p/{pid}/opportunities/{oid}", data={"action": "done"},
+                   headers={"referer": f"http://testserver/p/{pid}/queue"})
+        assert r.url.path == f"/p/{pid}/queue"
+        assert "Undo" in c.get(f"/p/{pid}/opportunities?status=done").text

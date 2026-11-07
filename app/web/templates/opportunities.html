@@ -1,5 +1,6 @@
 {% extends "base.html" %}{% block body %}
 <form class="row" method="get" style="margin-bottom:12px">
+<input name="search" value="{{ search }}" placeholder="Search domain, URL, title or platform" style="min-width:260px">
 <select name="kind"><option value="">All kinds</option>{% for k in kinds %}<option {{ 'selected' if k==kind }}>{{ k }}</option>{% endfor %}</select>
 <select name="status">{% for s in ['new','approved','in_progress','done','snoozed','rejected',''] %}<option value="{{s}}" {{ 'selected' if s==status }}>{{ s or 'any status' }}</option>{% endfor %}</select>
 {% if is_manager %}<label><input type="checkbox" name="mine" value="1" {{ 'checked' if mine }}> only mine</label>
@@ -9,7 +10,7 @@
 <div class="card tbl"><table>
 <tr><th>Score</th><th>Kind</th><th>Opportunity</th><th>Why</th><th>Comp.</th><th>Assigned</th><th></th></tr>
 {% for o in opps %}<tr>
-<td><b>{{ o.score }}</b></td><td><span class="chip">{{ o.kind }}</span>{% if o.data.link %}<br><small>{{ o.data.link }} · {{ o.data.posting }}</small>{% endif %}</td>
+<td><b>{{ o.score }}</b>{% if o.status != 'new' %}<br><span class="chip">{{ o.status }}</span>{% endif %}</td><td><span class="chip">{{ o.kind }}</span>{% if o.data.link %}<br><small>{{ o.data.link }} · {{ o.data.posting }}</small>{% endif %}</td>
 <td>{{ o.title }}<br><a href="{{ o.url }}" target="_blank" rel="noopener"><small>{{ o.url[:80] }}</small></a></td>
 <td><small>{{ o.reason[:140] }}</small></td><td>{{ o.competitors_count }}</td>
 <td><form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="assign">
@@ -20,8 +21,9 @@
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="draft"><button class="primary" title="Approve and let Claude draft content">Draft</button></form>
 {% if o.kind != 'self_publish' %}<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="find_contact"><button title="Find editor emails on their site">Find contact</button></form>{% endif %}
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="snoozed"><button>Later</button></form>
+{% if o.status in ('done','snoozed','rejected') %}<form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="new"><button title="Move back to new">Undo</button></form>{% endif %}
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="rejected"><button>✕</button></form>
 </td></tr>
 {% else %}<tr><td colspan="7" class="muted">No opportunities with this filter.</td></tr>{% endfor %}
 </table></div>
-{% from "_pager.html" import pager as pg %}{{ pg(pager, '&kind=' ~ kind ~ '&status=' ~ status ~ ('&mine=1' if mine else '')) }}{% endblock %}
+{% from "_pager.html" import pager as pg %}{{ pg(pager, '&kind=' ~ kind ~ '&status=' ~ status ~ ('&mine=1' if mine else '') ~ ('&search=' ~ search|urlencode if search else '')) }}{% endblock %}
