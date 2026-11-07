@@ -403,7 +403,8 @@ def queue_page(pid: int, request: Request, db: Session = Depends(get_db)):
                 ("directory", "reviews", "deals", "affiliate", "profile", "marketplace", "web2")]
     return templates.TemplateResponse(request, "queue.html", {
         "p": p, "items": items, "tab": "queue", "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps,
-        "biz": {k: v for k, v in project_cfg(p)["business"].items() if v},
+        "biz": {k: v for k, v in {**project_cfg(p)["business"],
+                                  "business_name": project_cfg(p)["business"].get("business_name") or p.name}.items() if v},
         "compose": {i.id: _compose_url(db, i) for i in items},
         "api": {i.id: get_channel(i.channel).mode == "api" for i in items}})
 

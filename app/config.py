@@ -133,7 +133,10 @@ DEFAULTS: dict = {
     },
     "business": {
         # One place for directory / review-site / business-data submissions (NAP must match everywhere).
-        "legal_name": "", "address": "", "city": "", "state": "", "postal_code": "", "country": "",
+        "business_name": "",  # public / trading name shown on listings (e.g. T-Shirt Crisis); empty = project name
+        "legal_name": "",  # company that owns the brand (only where a form asks for the legal entity)
+        "company_number": "", "vat_number": "",
+        "address": "", "city": "", "state": "", "postal_code": "", "country": "",
         "phone": "", "email": "", "founded": "", "hours": "", "categories": [],
         "facebook": "", "instagram": "", "pinterest": "", "tiktok": "", "linkedin": "", "x": "", "youtube": "",
     },
