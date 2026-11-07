@@ -378,3 +378,11 @@ def test_types_hub_outreach_smoke(monkeypatch):
         assert "Affiliate / content site launch" in cl.get(f"/p/{pid}").text
         assert "72-hour launch sprint" not in cl.get(f"/p/{pid}").text
         assert cl.get("/u/" + "x" * 30).status_code == 200  # public unsubscribe works without login
+
+
+def test_ai_and_worker_modules_import():
+    import app.ai  # noqa: F401  (catches syntax/import errors the web tests don't touch)
+    import app.outreach  # noqa: F401
+    from app import worker
+
+    assert {"draft_for_opportunity", "profile_kit", "send_email", "check_inbox", "check_links"} <= set(worker.HANDLERS)

@@ -69,6 +69,8 @@ def classify(source_url: str, title: str = "", page_type: str = "", is_spam: boo
     if subtype in set(quality.get("skip_categories", [])):
         return Classification(root_domain(host), subtype, "skip", subtype, "category skipped for this project type")
     if subtype == "deals":
+        if not any(w in host for w in ("coupon", "deal", "voucher", "promo", "discount", "saving", "offer", "code")):
+            return Classification(root_domain(host), "coupon_post", "skip", subtype, "one-off coupon post / parasite page")
         return Classification(root_domain(host), "deals", "self_publish", subtype, "coupon/deal site: submit brand + real offers")
     if subtype == "affiliate":
         return Classification(root_domain(host), "affiliate", "self_publish", subtype, "affiliate directory: list our program")

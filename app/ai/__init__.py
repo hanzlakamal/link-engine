@@ -37,6 +37,40 @@ def complete(prompt: str, *, system: str = "", premium: bool = False, max_tokens
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
 
 
+def _schema(fields: dict) -> dict:
+    """fields: name -> "str" | "list" | "bool" | dict(nested object list item fields)."""
+    def one(v):
+        if v == "list":
+            return {"type": "array", "items": {"type": "string"}}
+        if v == "bool":
+            return {"type": "boolean"}
+        if isinstance(v, dict):
+            return {"type": "array", "items": _schema(v)}
+        return {"type": "string"}
+    return {"type": "object", "properties": {k: one(v) for k, v in fields.items()},
+            "required": list(fields), "additionalProperties": False}
+
+
+def complete_json(prompt: str, fields: dict, *, system: str = "", premium: bool = False, max_tokens: int = 16000,
+                  effort: str = "") -> dict:
+    """Structured outputs (output_config.format): the API guarantees valid JSON matching the schema.
+
+    Current models think before answering and thinking counts toward max_tokens, so keep it generous
+    and use lower effort for routine copywriting (premium tasks get medium)."""
+    s = get_settings()
+    effort = effort or ("medium" if premium else "low")
+    msg = _client().messages.create(
+        model=s.model_premium if premium else s.model_default,
+        max_tokens=max(max_tokens, 16000),
+        system=system or "You are a senior brand marketer and copywriter.",
+        output_config={"effort": effort, "format": {"type": "json_schema", "schema": _schema(fields)}},
+        messages=[{"role": "user", "content": prompt}],
+    )
+    if msg.stop_reason in ("refusal", "max_tokens"):
+        raise ValueError(f"AI stopped early ({msg.stop_reason})")
+    return json.loads(next(b.text for b in msg.content if b.type == "text"))
+
+
 def _json(text: str) -> dict:
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
@@ -80,7 +114,7 @@ def build_brand_voice(domain: str) -> dict:
     text = fetch_site_text(domain)
     if not text:
         raise RuntimeError(f"Could not fetch any pages from {domain}")
-    return _json(complete(BRAND_VOICE_PROMPT.format(domain=domain, text=text[:20000]), premium=True, max_tokens=6000))
+    return complete_json(BRAND_VOICE_PROMPT.format(domain=domain, text=text[:20000]), {"positioning": "str", "audience": "list", "tone": "list", "humor_style": "str", "do_words": "list", "dont_words": "list", "signature_phrases": "list", "products_to_feature": "list", "content_pillars": "list", "example_social_post": "str", "example_quora_answer_opening": "str", "cta_style": "str", "compliance_notes": "list"}, premium=True, max_tokens=6000)
 
 
 CONTENT_PROMPT = """Write a {content_type} for {platform} on behalf of {brand} ({domain}).
@@ -116,8 +150,8 @@ Return ONLY JSON: {{"tagline": "<60 chars", "short": "150-250 chars", "medium": 
 
 
 def profile_kit(brand: str, domain: str, voice: dict) -> dict:
-    return _json(complete(PROFILE_KIT_PROMPT.format(brand=brand, domain=domain, voice=json.dumps(voice)[:3000]),
-                          max_tokens=2500))
+    return complete_json(PROFILE_KIT_PROMPT.format(brand=brand, domain=domain, voice=json.dumps(voice)[:3000]), {"tagline": "str", "short": "str", "medium": "str", "long": "str", "categories": "list", "keywords": "list", "founder_bio": "str"},
+                          max_tokens=2500)
 
 
 def draft_content(*, brand: str, domain: str, voice: dict, platform: str, content_type: str, goal: str,
@@ -130,7 +164,7 @@ def draft_content(*, brand: str, domain: str, voice: dict, platform: str, conten
         rules=PLATFORM_RULES.get(platform, "Follow the platform's norms; never spammy."),
         target_url=target_url or f"https://{domain}",
     )
-    return _json(complete(prompt, premium=premium, max_tokens=6000 if platform == 'own_blog' else 3000))
+    return complete_json(prompt, {"title": "str", "body": "str", "notes_for_reviewer": "str"}, premium=premium, max_tokens=6000 if platform == 'own_blog' else 3000)
 
 
 REPLY_PROMPT = """You manage link-building outreach for {brand} ({domain}). Classify this reply and draft a response.
@@ -150,9 +184,9 @@ EMAIL:
 
 
 def classify_reply(brand, domain, subject, body, sender) -> dict:
-    return _json(complete(REPLY_PROMPT.format(brand=brand, domain=domain, subject=subject, body=body[:4000],
-                                              sender=sender), max_tokens=1500))
+    return complete_json(REPLY_PROMPT.format(brand=brand, domain=domain, subject=subject, body=body[:4000],
+                                              sender=sender), {"label": "str", "summary": "str", "draft_reply": "str"}, max_tokens=1500)
 
 
 def extract_pr_requests(brand, niche, body) -> list[dict]:
-    return _json(complete(PR_PROMPT.format(brand=brand, niche=niche, body=body[:12000]), max_tokens=3000)).get("requests", [])
+    return complete_json(PR_PROMPT.format(brand=brand, niche=niche, body=body[:12000]), {"requests": {"title": "str", "outlet": "str", "deadline": "str", "summary": "str", "how_to_respond": "str", "relevant": "bool"}}, max_tokens=4000).get("requests", [])

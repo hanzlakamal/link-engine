@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import pipeline
-from app.config import get_settings
+from app.config import get_settings, project_cfg
 from app.db import SessionLocal, engine, init_db
 from app.models import ContentItem, EarnedLink, Job, Opportunity, PlatformAccount, Project, utcnow
 from app.registry import load_plugins
@@ -130,7 +130,7 @@ def _publish(s, project, payload):
     item = s.get(ContentItem, payload["content_id"])
     if item is None or item.status not in ("approved", "scheduled"):
         return {"skipped": True}
-    if item.channel == "outreach_email":
+    if item.channel in ("outreach_email", "email"):
         return HANDLERS["send_email"](s, project, payload)
     cfg = project_cfg(project)
     ok, msg = limits.allow(s, cfg, project.id, item.channel)

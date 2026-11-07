@@ -53,7 +53,7 @@ def get_channel(name: str) -> Channel:
         return ch
 
 
-for _n in list(COMPOSE_URLS) + ["email", "instagram", "tiktok", "facebook", "youtube", "x", "profile", "directory", "forum"]:
+for _n in list(COMPOSE_URLS) + ["instagram", "tiktok", "facebook", "youtube", "x", "profile", "directory", "forum"]:
     channels.register(_n)(type(f"{_n.title()}Channel", (Channel,), {}))
 
 
@@ -141,3 +141,6 @@ class OutreachEmail(Channel):
     """Personal outreach email sent through Brevo with compliance footer."""
 
     mode = "api"
+
+
+channels.register("email")(type("LegacyEmailChannel", (OutreachEmail,), {}))  # drafts made before the upgrade
