@@ -30,6 +30,7 @@
 <button name="action" value="save">Save edits</button><button name="action" value="reject">Reject</button>
 {% if api[i.id] and i.status in ('approved','scheduled','failed') %}<button formaction="/p/{{p.id}}/content/{{i.id}}/publish" class="primary">Publish now</button>{% endif %}
 {% if not api[i.id] %}
+<button type="button" onclick="navigator.clipboard.writeText(this.closest('form').body.value);this.textContent='Copied ✓'">Copy text</button>
 {% if compose[i.id] %}<a class="btn" href="{{ compose[i.id] }}" target="_blank" rel="noopener" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('form').body.value)">Copy &amp; open {{ i.channel }}</a>{% endif %}
 <input name="published_url" placeholder="Paste live URL after posting"><button name="action" value="published">Mark published</button>
 {% endif %}

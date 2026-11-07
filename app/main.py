@@ -384,8 +384,18 @@ def queue_page(pid: int, request: Request, db: Session = Depends(get_db)):
                 ("directory", "reviews", "deals", "affiliate", "profile", "marketplace", "web2")]
     return templates.TemplateResponse(request, "queue.html", {
         "p": p, "items": items, "tab": "queue", "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps,
-        "compose": {i.id: get_channel(i.channel).compose_url() for i in items},
+        "compose": {i.id: _compose_url(db, i) for i in items},
         "api": {i.id: get_channel(i.channel).mode == "api" for i in items}})
+
+
+def _compose_url(db: Session, item: ContentItem) -> str:
+    """Where to paste: the platform's posting page if known, else the site from the opportunity."""
+    url = get_channel(item.channel).compose_url()
+    if not url and item.opportunity_id:
+        o = db.get(Opportunity, item.opportunity_id)
+        if o and o.domain:
+            url = f"https://{o.domain}"
+    return url
 
 
 @app.post("/p/{pid}/articles")
