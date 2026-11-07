@@ -294,6 +294,24 @@ def apply_playbook(pid: int, name: str, start: str = Form(""), db: Session = Dep
     return _back(pid, "tasks")
 
 
+PER_PAGE = 50
+
+
+def paginate(q, page: int, db: Session):
+    total = db.scalar(select(func.count()).select_from(q.order_by(None).subquery())) or 0
+    page = max(1, page)
+    rows = db.scalars(q.offset((page - 1) * PER_PAGE).limit(PER_PAGE)).all()
+    return rows, {"page": page, "pages": max(1, -(-total // PER_PAGE)), "total": total}
+
+
+def mask_email(e: str) -> str:
+    local, _, dom = (e or "").partition("@")
+    return f"{local[:2]}•••@{dom}" if dom else "•••"
+
+
+templates.env.filters["mask_email"] = mask_email
+
+
 def _back_to_list(request: Request, pid: int) -> RedirectResponse:
     from urllib.parse import urlparse
 
@@ -328,7 +346,7 @@ def auto_assign(pid: int, request: Request, db: Session = Depends(get_db)):
 
 
 @app.get("/p/{pid}/opportunities", response_class=HTMLResponse)
-def opportunities_page(pid: int, request: Request, kind: str = "", status: str = "new", mine: int = 0,
+def opportunities_page(pid: int, request: Request, kind: str = "", status: str = "new", mine: int = 0, page: int = 1,
                        db: Session = Depends(get_db)):
     p = _project(db, pid)
     q = select(Opportunity).where(Opportunity.project_id == pid)
@@ -338,10 +356,11 @@ def opportunities_page(pid: int, request: Request, kind: str = "", status: str =
         q = q.where(Opportunity.kind == kind)
     if status:
         q = q.where(Opportunity.status == status)
-    opps = db.scalars(q.order_by(Opportunity.score.desc()).limit(300)).all()
+    opps, pager = paginate(q.order_by(Opportunity.score.desc(), Opportunity.id), page, db)
     kinds = db.scalars(select(Opportunity.kind).where(Opportunity.project_id == pid).distinct()).all()
     return templates.TemplateResponse(request, "opportunities.html", {
         "p": p, "opps": opps, "kinds": kinds, "kind": kind, "status": status, "mine": mine, "tab": "opportunities",
+        "pager": pager,
         "team": _team(db, pid), "names": {u.id: u.name or u.email for u in db.scalars(select(User))},
         "is_manager": authz.at_least(me(request), "manager"), "me": me(request)})
 
@@ -384,6 +403,7 @@ def queue_page(pid: int, request: Request, db: Session = Depends(get_db)):
                 ("directory", "reviews", "deals", "affiliate", "profile", "marketplace", "web2")]
     return templates.TemplateResponse(request, "queue.html", {
         "p": p, "items": items, "tab": "queue", "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps,
+        "biz": {k: v for k, v in project_cfg(p)["business"].items() if v},
         "compose": {i.id: _compose_url(db, i) for i in items},
         "api": {i.id: get_channel(i.channel).mode == "api" for i in items}})
 
@@ -518,6 +538,10 @@ def content_action(pid: int, cid: int, request: Request, action: str = Form(...)
         db.add(EarnedLink(project_id=pid, source_url=published_url, target_url=c.target_url,
                           kind="self_publish" if c.channel != "email" else "outreach", status="pending",
                           content_item_id=c.id, credited_to=u.id))
+        db.flush()
+        el = db.scalar(select(EarnedLink).where(EarnedLink.project_id == pid, EarnedLink.source_url == published_url))
+        if el:  # you pasted it -> analyse that one page now
+            enqueue(db, "check_links", pid, link_id=el.id)
         db.add(Event(project_id=pid, user_id=u.id, level="win",
                      message=f"{u.name or u.email} published on {c.channel}: {published_url}"))
     db.commit()
@@ -745,18 +769,18 @@ def team_save(request: Request, email: str = Form(...), name: str = Form(""), ro
 
 
 @app.get("/audit", response_class=HTMLResponse)
-def audit_page(request: Request, db: Session = Depends(get_db)):
-    rows = db.scalars(select(Event).where(Event.level == "audit").order_by(Event.created_at.desc()).limit(300)).all()
+def audit_page(request: Request, page: int = 1, db: Session = Depends(get_db)):
+    rows, pager = paginate(select(Event).where(Event.level == "audit").order_by(Event.created_at.desc()), page, db)
     names = {u.id: u.name or u.email for u in db.scalars(select(User))}
-    return templates.TemplateResponse(request, "audit.html", {"rows": rows, "names": names})
+    return templates.TemplateResponse(request, "audit.html", {"rows": rows, "names": names, "pager": pager})
 
 
 
 # ------------------------------------------------------------------ outreach & PR
 @app.get("/p/{pid}/outreach", response_class=HTMLResponse)
-def outreach_page(pid: int, request: Request, db: Session = Depends(get_db)):
+def outreach_page(pid: int, request: Request, page: int = 1, db: Session = Depends(get_db)):
     p = _project(db, pid)
-    contacts = db.scalars(select(Contact).where(Contact.project_id == pid).order_by(Contact.updated_at.desc()).limit(300)).all()
+    contacts, pager = paginate(select(Contact).where(Contact.project_id == pid).order_by(Contact.updated_at.desc()), page, db)
     prs = db.scalars(select(Opportunity).where(Opportunity.project_id == pid, Opportunity.kind == "pr_request",
                      Opportunity.status.in_(("new", "approved", "in_progress"))).order_by(Opportunity.created_at.desc())).all()
     counts = dict(db.execute(select(Contact.status, func.count()).where(Contact.project_id == pid).group_by(Contact.status)).all())
@@ -766,7 +790,8 @@ def outreach_page(pid: int, request: Request, db: Session = Depends(get_db)):
              "inbox": bool(db.scalar(select(PlatformAccount).where(PlatformAccount.project_id == pid,
                                                                     PlatformAccount.platform == "imap_inbox")))}
     return templates.TemplateResponse(request, "outreach.html", {
-        "p": p, "contacts": contacts, "prs": prs, "counts": counts, "ready": ready, "tab": "outreach"})
+        "p": p, "contacts": contacts, "prs": prs, "counts": counts, "ready": ready, "tab": "outreach", "pager": pager,
+        "full_contacts": authz.at_least(me(request), "manager")})
 
 
 @app.post("/p/{pid}/outreach/{jtype}")
@@ -802,3 +827,28 @@ def unsubscribe(token: str, db: Session = Depends(get_db)):
         c.status = "unsubscribed"
         db.commit()
     return HTMLResponse("<p style='font-family:sans-serif;padding:40px'>You're unsubscribed. We won't email you again.</p>")
+
+
+
+@app.get("/team/{uid}/links", response_class=HTMLResponse)
+def person_links(uid: int, request: Request, page: int = 1, db: Session = Depends(get_db)):
+    person = db.get(User, uid)
+    if person is None:
+        raise HTTPException(404)
+    q = select(EarnedLink).where(EarnedLink.credited_to == uid).order_by(EarnedLink.created_at.desc())
+    links, pager = paginate(q, page, db)
+    projects = {p.id: p.name for p in db.scalars(select(Project))}
+    scored = [l.score for l in db.scalars(select(EarnedLink).where(EarnedLink.credited_to == uid)) if l.score is not None]
+    return templates.TemplateResponse(request, "person_links.html", {
+        "person": person, "links": links, "pager": pager, "projects": projects,
+        "avg": round(sum(scored) / len(scored)) if scored else None})
+
+
+@app.post("/team/{uid}/links/recheck")
+def person_links_recheck(uid: int, request: Request, db: Session = Depends(get_db)):
+    pids = set(db.scalars(select(EarnedLink.project_id).where(EarnedLink.credited_to == uid)))
+    for pid in pids:
+        enqueue(db, "check_links", pid, credited_to=uid)
+    audit(db, me(request).id, f"Re-checked links of user {uid}")
+    db.commit()
+    return RedirectResponse(f"/team/{uid}/links", status_code=303)

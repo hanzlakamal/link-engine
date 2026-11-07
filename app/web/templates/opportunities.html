@@ -23,4 +23,5 @@
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="rejected"><button>✕</button></form>
 </td></tr>
 {% else %}<tr><td colspan="7" class="muted">No opportunities with this filter.</td></tr>{% endfor %}
-</table></div>{% endblock %}
+</table></div>
+{% from "_pager.html" import pager as pg %}{{ pg(pager, '&kind=' ~ kind ~ '&status=' ~ status ~ ('&mine=1' if mine else '')) }}{% endblock %}

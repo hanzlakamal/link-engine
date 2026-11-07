@@ -284,24 +284,27 @@ def _check_links(s, project, payload):
 
     from app.auth import assert_public_url
 
+    from app.linkaudit import analyse
+
+    terms = project_cfg(project)["quality"]["relevance_terms"]
+    q = select(EarnedLink).where(EarnedLink.project_id == project.id)
+    if payload.get("link_id"):
+        q = q.where(EarnedLink.id == payload["link_id"])
+    if payload.get("credited_to"):
+        q = q.where(EarnedLink.credited_to == payload["credited_to"])
     n = live = 0
-    for el in s.scalars(select(EarnedLink).where(EarnedLink.project_id == project.id)):
+    for el in s.scalars(q):
         n += 1
-        try:
-            assert_public_url(el.source_url)
-            r = httpx.get(el.source_url, timeout=20, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 BuzzScoutsEngine"})
-            links = [a for a in BeautifulSoup(r.text, "html.parser").find_all("a", href=True)
-                     if project.domain in a["href"]] if r.status_code == 200 else []
-        except (ValueError, httpx.HTTPError):
-            links = []
-        if links:
+        a = analyse(el.source_url, project.domain, terms)
+        el.audit, el.score, el.anchor, el.last_checked = a, a["score"], a["anchor"], utcnow()
+        if a["live"]:
             live += 1
-            el.status = "live"
-            el.dofollow = not any(x in (links[0].get("rel") or []) for x in ("nofollow", "ugc", "sponsored"))
+            el.status, el.dofollow = "live", a["dofollow"]
         elif el.status == "live":
             el.status = "lost"
             pipeline.event(s, project.id, f"Link lost: {el.source_url}", "warn")
-        el.last_checked = utcnow()
+        elif el.status == "pending":
+            el.status = "not_found"
     pipeline.event(s, project.id, f"Link check: {live}/{n} live.", "info")
     return {"checked": n, "live": live}
 

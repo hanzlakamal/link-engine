@@ -12,7 +12,8 @@ from app.config import DEFAULTS
 
 SECTION_LABELS = {
     "market": "Market", "discovery": "Discovery & API cost", "quality": "Quality filter & scoring",
-    "automation": "Automation", "sender": "Sender (emails & signatures)", "publishing": "Publishing (blog hub)",
+    "automation": "Automation", "sender": "Sender (emails & signatures)",
+    "business": "Business profile (directory submissions)", "publishing": "Publishing (blog hub)",
     "outreach": "Outreach & PR", "limits": "Frequency limits (anti-spam)", "alerts": "Alerts",
 }
 HELP = {

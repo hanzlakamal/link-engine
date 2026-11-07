@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% from "_pager.html" import pager as pg %}{% block body %}
+<h2 style="margin-top:0">{{ person.name or person.email }} <small>published links · avg quality {{ avg if avg is not none else '–' }}/100</small></h2>
+<div class="row" style="margin-bottom:10px"><a class="btn" href="/team">&larr; Team</a>
+<form method="post" action="/team/{{ person.id }}/links/recheck" class="inline"><button class="primary">Re-check &amp; re-score all</button></form></div>
+<div class="card tbl"><table>
+<tr><th>Score</th><th>Page</th><th>Project · type</th><th>Status</th><th>Link</th><th>Issues</th><th>Published</th></tr>
+{% for l in links %}<tr>
+<td><b style="color:{{ 'var(--win)' if (l.score or 0) >= 70 else ('var(--warn)' if (l.score or 0) >= 40 else 'var(--bad)') }}">{{ l.score|int if l.score is not none else '…' }}</b></td>
+<td><a href="{{ l.source_url }}" target="_blank" rel="noopener">{{ l.source_url[:70] }}</a>{% if l.anchor %}<br><small>anchor: "{{ l.anchor }}"</small>{% endif %}</td>
+<td><small>{{ projects.get(l.project_id) }} · {{ l.kind }}</small></td>
+<td><span class="chip {{ 'win' if l.status=='live' else ('warn' if l.status in ('lost','not_found') else '') }}">{{ l.status }}</span></td>
+<td><small>{{ 'dofollow' if l.dofollow else ('nofollow' if l.dofollow is not none else '–') }}{% if l.audit %} · {{ 'in content' if l.audit.in_content else 'boilerplate' }} · {{ l.audit.words }} words{% endif %}</small></td>
+<td><small>{{ (l.audit.issues if l.audit else ['not checked yet'])|join('; ') }}</small></td>
+<td><small>{{ l.created_at.strftime('%b %d') }}</small></td></tr>
+{% else %}<tr><td colspan="7" class="muted">No published links yet.</td></tr>{% endfor %}</table></div>
+{{ pg(pager) }}
+<p><small>Score: live + our link present 35 · dofollow 20 · indexable 15 · in main content 15 · niche relevance 10 · 300+ words 3 · not a link farm 2.</small></p>
+{% endblock %}

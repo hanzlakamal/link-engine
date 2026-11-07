@@ -131,6 +131,12 @@ DEFAULTS: dict = {
         "business_hours": [9, 17],
         "email_ramp": {"start": 5, "max": 30, "weeks": 4, "bounce_pause_pct": 3.0, "followups": 1, "followup_days": 5},
     },
+    "business": {
+        # One place for directory / review-site / business-data submissions (NAP must match everywhere).
+        "legal_name": "", "address": "", "city": "", "state": "", "postal_code": "", "country": "",
+        "phone": "", "email": "", "founded": "", "hours": "", "categories": [],
+        "facebook": "", "instagram": "", "pinterest": "", "tiktok": "", "linkedin": "", "x": "", "youtube": "",
+    },
     "sender": {
         # Used in outreach emails and signatures so drafts never contain placeholders.
         "name": "", "title": "Founder", "email": "", "reply_to": "", "signature": "",

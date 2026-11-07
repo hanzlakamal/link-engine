@@ -2,4 +2,4 @@
 <h2 style="margin-top:0">Audit log <small>logins, settings, users, assignments</small></h2>
 <div class="card tbl"><table><tr><th>When (UTC)</th><th>Who</th><th>What</th></tr>
 {% for e in rows %}<tr><td><small>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</small></td><td>{{ names.get(e.user_id, '–') }}</td><td>{{ e.message }}</td></tr>
-{% else %}<tr><td colspan="3" class="muted">Nothing yet.</td></tr>{% endfor %}</table></div>{% endblock %}
+{% else %}<tr><td colspan="3" class="muted">Nothing yet.</td></tr>{% endfor %}</table></div>{% from "_pager.html" import pager as pg %}{{ pg(pager) }}{% endblock %}

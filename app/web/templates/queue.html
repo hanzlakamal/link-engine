@@ -8,6 +8,8 @@
 {% if kit %}<details><summary>Copy-ready texts</summary>{% for k in ['tagline','short','medium','long','founder_bio'] %}<p><b>{{ k }}</b><br><textarea rows="3" readonly onclick="this.select()">{{ kit[k] }}</textarea></p>{% endfor %}
 <p><small>Categories: {{ (kit.categories or [])|join(', ') }} · Keywords: {{ (kit.keywords or [])|join(', ') }}</small></p></details>
 {% else %}<p class="muted">Click "Profile kit" on Overview to generate texts once.</p>{% endif %}
+{% if biz %}<details><summary>Business details (NAP) for forms</summary><table>{% for k, v in biz.items() if v %}<tr><td><small>{{ k }}</small></td><td><input value="{{ v if v is string else v|join(', ') }}" readonly onclick="this.select()" style="width:100%"></td></tr>{% endfor %}</table></details>
+{% else %}<p><small>Fill in <a href="/p/{{ p.id }}/settings">Settings &rarr; Business profile</a> once; it shows here for every directory form.</small></p>{% endif %}
 {% for o in kit_opps[:25] %}<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.platform }}</a><small>{{ o.data.category }}</small>
 <form method="post" action="/p/{{p.id}}/opportunities/{{o.id}}" class="inline"><input type="hidden" name="action" value="done"><button>Done</button></form></div>{% endfor %}
 </div></div>

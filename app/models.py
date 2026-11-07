@@ -225,6 +225,9 @@ class EarnedLink(TimestampMixin, Base):
     last_checked: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     content_item_id: Mapped[int | None] = mapped_column(ForeignKey("content_items.id", ondelete="SET NULL"))
     credited_to: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0-100 link quality (app/linkaudit.py)
+    anchor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audit: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Job(TimestampMixin, Base):

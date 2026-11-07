@@ -1,0 +1,5 @@
+{% macro pager(p, extra='') %}{% if p.pages > 1 %}
+<div class="row" style="margin:10px 0"><small>{{ p.total }} total · page {{ p.page }} of {{ p.pages }}</small>
+{% if p.page > 1 %}<a class="btn" href="?page={{ p.page - 1 }}{{ extra }}">&larr; Prev</a>{% endif %}
+{% if p.page < p.pages %}<a class="btn" href="?page={{ p.page + 1 }}{{ extra }}">Next &rarr;</a>{% endif %}</div>
+{% endif %}{% endmacro %}

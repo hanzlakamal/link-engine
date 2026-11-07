@@ -13,11 +13,12 @@
 <div class="card tbl"><h3>Contacts {% for k,v in counts.items() %}<span class="chip">{{ k }} {{ v }}</span> {% endfor %}</h3>
 <form method="post" action="/p/{{p.id}}/contacts" class="row" style="margin-bottom:8px"><input name="email" type="email" placeholder="editor@site.com" required><input name="name" placeholder="Name"><button>Add</button></form>
 <table><tr><th>Contact</th><th>Status</th><th>Last</th></tr>
-{% for c in contacts %}<tr><td>{{ c.name }} <small>{{ c.email }}</small><br><small>{{ c.domain }} · {{ c.source }}</small></td>
+{% for c in contacts %}<tr><td>{{ c.name }} <small>{{ c.email if full_contacts else c.email|mask_email }}</small><br><small>{{ c.domain }} · {{ c.source }}</small></td>
 <td><span class="chip {{ 'win' if c.status=='replied' else ('warn' if c.status in ('bounced','unsubscribed') else '') }}">{{ c.status }}</span>
 {% if c.data.label %}<br><small>{{ c.data.label }}: {{ c.data.last_reply }}</small>{% endif %}</td>
 <td><small>{{ c.last_contacted.strftime('%b %d') if c.last_contacted else '–' }}</small></td></tr>
-{% else %}<tr><td colspan="3" class="muted">No contacts yet. Use "Find contact" on an opportunity.</td></tr>{% endfor %}</table></div>
+{% else %}<tr><td colspan="3" class="muted">No contacts yet. Use "Find contact" on an opportunity.</td></tr>{% endfor %}</table>
+{% from "_pager.html" import pager as pg %}{{ pg(pager) }}{% if not full_contacts %}<small>Email addresses are masked for your role.</small>{% endif %}</div>
 <div class="card"><h3>Journalist requests</h3>
 {% for o in prs %}<div style="margin-bottom:10px"><b>{{ o.title }}</b> <small>{{ o.domain }} · deadline {{ o.data.deadline or '?' }}</small><br><small>{{ o.reason }}</small><br>
 <small>How to respond: {{ o.data.how_to_respond }}</small>

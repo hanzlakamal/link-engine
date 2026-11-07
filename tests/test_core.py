@@ -420,3 +420,40 @@ def test_builder_sees_only_assigned_and_filters_survive():
         assert "MINE" in html and "OTHER" not in html
         assert c.post(f"/p/{pid}/opportunities/{other}", data={"action": "draft"}).status_code == 403
     authz._fails.clear()
+
+
+def test_masking_pagination_person_links():
+    from fastapi.testclient import TestClient
+
+    from app import auth as authz
+    from app.main import app, mask_email
+    from app.models import Contact, EarnedLink, ProjectMember, User
+
+    assert mask_email("editor@site.com") == "ed" + chr(0x2022) * 3 + "@site.com"
+    authz._fails.clear()
+    with session_scope() as s:
+        s.add(User(email="adm2@test.com", name="A", role="admin", password_hash=authz.hash_password("admin-pass-1234")))
+        b = User(email="b2@test.com", name="B", role="builder", password_hash=authz.hash_password("builder-pass-123"))
+        p = Project(name="P", domain="p.com")
+        s.add_all([b, p])
+        s.flush()
+        s.add(ProjectMember(user_id=b.id, project_id=p.id))
+        s.add(Contact(project_id=p.id, email="editor@site.com", unsub_token="t" * 30))
+        for i in range(60):
+            s.add(Opportunity(project_id=p.id, kind="link_gap", key=f"d{i}.com", title=f"Site {i}", score=i))
+        s.add(EarnedLink(project_id=p.id, source_url="https://x.com/post", credited_to=b.id, score=80, status="live"))
+        s.flush()
+        pid, bid = p.id, b.id
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "b2@test.com", "password": "builder-pass-123"})
+        html = c.get(f"/p/{pid}/outreach").text
+        assert mask_email("editor@site.com") in html and "editor@site.com</small>" not in html
+    with TestClient(app) as a:
+        a.post("/login", data={"email": "adm2@test.com", "password": "admin-pass-1234"})
+        assert "editor@site.com</small>" in a.get(f"/p/{pid}/outreach").text
+        o = a.get(f"/p/{pid}/opportunities?status=new").text
+        assert "page 1 of 2" in o and "Site 59" in o and "Site 0<" not in o
+        assert "Site 0" in a.get(f"/p/{pid}/opportunities?status=new&page=2").text
+        pl = a.get(f"/team/{bid}/links").text
+        assert "https://x.com/post" in pl and "avg quality 80" in pl
+    authz._fails.clear()
