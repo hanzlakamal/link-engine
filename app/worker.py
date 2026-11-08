@@ -75,7 +75,66 @@ def _voice(s, project, payload):
 
     project.brand_voice = ai.build_brand_voice(project.domain)
     pipeline.event(s, project.id, "Brand voice profile drafted — review it in Settings.", "action")
+    if not ((project.settings or {}).get("social") or {}).get("queries"):
+        enqueue(s, "suggest_social", project.id)
     return {"keys": list(project.brand_voice)}
+
+
+def _site_pages(domain: str, limit: int = 60) -> list[str]:
+    """Collection/category/landing paths from the sitemap (cheap: a few HTTP GETs, no API cost)."""
+    import re as _re
+
+    import httpx
+
+    from app.auth import assert_public_url
+
+    paths, seen = [], set()
+    todo = [f"https://{domain}/sitemap_index.xml", f"https://{domain}/sitemap.xml"]
+    while todo and len(seen) < 8:
+        url = todo.pop(0)
+        if url in seen:
+            continue
+        seen.add(url)
+        try:
+            assert_public_url(url)
+            r = httpx.get(url, timeout=15, follow_redirects=True, headers={"User-Agent": "BuzzScoutsEngine/2.0"})
+        except Exception:  # noqa: BLE001
+            continue
+        locs = _re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", r.text)
+        for loc in locs:
+            if loc.endswith(".xml"):
+                if any(k in loc for k in ("category", "collection", "page", "product_cat")):
+                    todo.append(loc)
+            else:
+                path = "/" + loc.split("://", 1)[-1].split("/", 1)[-1] if "/" in loc.split("://", 1)[-1] else "/"
+                if path not in paths:
+                    paths.append(path)
+        if len(paths) >= limit:
+            break
+    return paths[:limit]
+
+
+@job("suggest_social")
+def _suggest_social(s, project, payload):
+    """Claude fills the project's Social & Community settings (only empty fields), then pushes them to the engine."""
+    from app import ai, social
+
+    cfg = project_cfg(project)
+    pages = _site_pages(project.domain)
+    out = ai.social_targets(brand=cfg["business"].get("business_name") or project.name, domain=project.domain,
+                            niche=project.niche or "", market=str(cfg.get("market", {}).get("country", "US")),
+                            voice=project.brand_voice or {}, pages=pages)
+    current = (project.settings or {}).get("social", {})
+    merged = dict(current)
+    for k, v in out.items():
+        if not current.get(k) or payload.get("overwrite"):
+            merged[k] = v
+    project.settings = {**(project.settings or {}), "social": merged}
+    res = social.push(s, project)
+    pipeline.event(s, project.id, "Social targets suggested by Claude (Settings > Social & Community)"
+                   + ("" if res is None else ("; pushed to the social engine" if not (res or {}).get("error")
+                                              else f"; engine push failed: {res.get('error')}")), "action")
+    return {"filled": [k for k in out if merged.get(k) == out[k]]}
 
 
 @job("draft_for_opportunity")

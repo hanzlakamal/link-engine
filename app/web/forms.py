@@ -15,6 +15,7 @@ SECTION_LABELS = {
     "automation": "Automation", "sender": "Sender (emails & signatures)",
     "business": "Business profile (directory submissions)", "publishing": "Publishing (blog hub)",
     "outreach": "Outreach & PR", "limits": "Frequency limits (anti-spam)", "alerts": "Alerts",
+    "social": "Social & Community (Reddit + Quora answers in Telegram)",
 }
 HELP = {
     "discovery.providers": "Order to try data sources, comma separated (ahrefs, dataforseo).",
@@ -45,6 +46,21 @@ HELP = {
     "limits.jitter_minutes": "Random gap between actions, min,max minutes.",
     "limits.business_hours": "Only act between these hours (start,end), local time.",
     "limits.email_ramp.bounce_pause_pct": "Pause an inbox if bounces exceed this %.",
+    "social.brand_offer": "One sentence: what the brand sells/does and for whom. Leave the social fields empty and click "
+                          "'Suggest targets' on Overview to let Claude fill them.",
+    "social.relevant": "Which posts count as relevant (e.g. 'asking for gift ideas or funny shirt recommendations').",
+    "social.looking_now": "What 'actively looking' means for this brand.",
+    "social.persona": "Who the answers are written as (honest, never a fake customer).",
+    "social.rules": "Extra rules for every answer: claims to avoid, tone, compliance.",
+    "social.link_line": "Disclosure line before the link, e.g. 'Full disclosure, I work with this shop:'.",
+    "social.queries": "Reddit search phrases (newest posts across Reddit).",
+    "social.subreddits": "Subreddits to watch for new posts (no r/ prefix).",
+    "social.avoid_subreddits": "Read these but never include a link there (self-promo banned).",
+    "social.reject_topics": "Never draft for posts mentioning these.",
+    "social.pages": "Site paths answers may link to, e.g. /, /product-category/halloween/.",
+    "social.quora": "Also find Quora questions (uses DataForSEO, about $0.002 per phrase per scan).",
+    "social.quora_queries": "Quora search phrases (empty = first 6 Reddit phrases).",
+    "social.link_every_nth": "Include a link in at most 1 of every N posted answers.",
 }
 CHOICES = {"automation.default_mode": ["approve", "auto", "off"], "publishing.own_blog_status": ["publish", "draft"]}
 

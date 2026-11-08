@@ -4,6 +4,11 @@
   "private": true,
   "description": "Finds Reddit threads about pest/wildlife problems, drafts helpful answers with Claude, sends them to Telegram for one-tap approval.",
   "main": "src/index.js",
-  "scripts": { "start": "node src/index.js", "test": "node test/dry-run.js" },
-  "engines": { "node": ">=20" }
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/dry-run.js && node test/quora.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

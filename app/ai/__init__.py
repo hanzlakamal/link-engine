@@ -154,6 +154,34 @@ def profile_kit(brand: str, domain: str, voice: dict) -> dict:
                           max_tokens=2500)
 
 
+SOCIAL_PROMPT = """Set up community marketing (helpful Reddit comments and Quora answers, NOT spam) for this brand.
+Brand: {brand} ({domain}). Niche: {niche}. Market: {market}.
+Brand voice / profile: {voice}
+Site pages we know: {pages}
+
+Return:
+- brand_offer: one sentence, what they sell/do and for whom.
+- relevant: one sentence defining which posts are worth answering (people asking for ideas/recommendations/help this brand can honestly give).
+- looking_now: one sentence defining "actively looking right now" for this niche.
+- persona: who the answers are written as, honest (e.g. "a friendly person who loves funny gifts"), never a fake customer.
+- rules: 2-4 short rules for answers (claims to avoid, compliance, tone), one paragraph.
+- link_line: a short honest disclosure line used before the link.
+- queries: 12-16 Reddit search phrases real people type when they need what the brand offers (short, natural).
+- subreddits: 6-10 active subreddits where such questions are asked (names only, no r/).
+- avoid_subreddits: the ones among them that ban self-promotion.
+- reject_topics: 3-6 topics never to answer (wholesale, B2B, off-niche).
+- quora_queries: 4-6 Quora-style question phrases.
+- pages: 2-8 site paths answers could link to, chosen ONLY from the known pages (or "/")."""
+
+
+def social_targets(*, brand: str, domain: str, niche: str, market: str, voice: dict, pages: list[str]) -> dict:
+    return complete_json(SOCIAL_PROMPT.format(brand=brand, domain=domain, niche=niche or "(infer from the site)",
+                         market=market, voice=json.dumps(voice or {})[:3000], pages=", ".join(pages[:60]) or "/"),
+                         {"brand_offer": "str", "relevant": "str", "looking_now": "str", "persona": "str", "rules": "str",
+                          "link_line": "str", "queries": "list", "subreddits": "list", "avoid_subreddits": "list",
+                          "reject_topics": "list", "quora_queries": "list", "pages": "list"}, max_tokens=4000)
+
+
 def draft_content(*, brand: str, domain: str, voice: dict, platform: str, content_type: str, goal: str,
                   target_url: str = "", premium: bool = False, sender: dict | None = None,
                   categories: list[str] | None = None) -> dict:

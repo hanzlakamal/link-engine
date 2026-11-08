@@ -648,3 +648,39 @@ def test_queue_views_restore_and_links_report():
         assert "example.net" in html and "2 link(s) to you" in html
         csv_text = c.get(f"/p/{pid}/links.csv").text
         assert csv_text.count("https://mag.example.net/gifts") == 2 and "referring_domain" in csv_text
+
+
+def test_social_settings_map_to_engine_and_suggest_fills_only_empty(monkeypatch):
+    from app import ai, social
+    from app.worker import HANDLERS
+
+    with session_scope() as s:
+        p = Project(name="Soc", domain="soc-test.com", type="ecommerce",
+                    settings={"social": {"persona": "my persona", "queries": [], "pages": ["/gifts/"]}})
+        s.add(p)
+        s.flush()
+        conf = social.engine_config(p)
+        assert conf["site"] == "https://soc-test.com" and conf["brand"]["persona"] == "my persona"
+        assert conf["pages"] == [{"url": "/gifts/", "about": ""}] and conf["quora"] is True and conf["queries"] == []
+        monkeypatch.setattr(ai, "social_targets", lambda **k: {
+            "brand_offer": "funny tees", "relevant": "r", "looking_now": "l", "persona": "AI persona", "rules": "x",
+            "link_line": "disclosure:", "queries": ["gift for dad"], "subreddits": ["gifts"], "avoid_subreddits": [],
+            "reject_topics": ["wholesale"], "quora_queries": ["best gift"], "pages": ["/"]})
+        import app.worker as w
+        monkeypatch.setattr(w, "_site_pages", lambda d, limit=60: ["/", "/gifts/"])
+        HANDLERS["suggest_social"](s, p, {})
+        sc = p.settings["social"]
+        assert sc["persona"] == "my persona" and sc["queries"] == ["gift for dad"] and sc["pages"] == ["/gifts/"]
+        assert social.push(s, p) is None  # no engine connected -> nothing to push
+
+
+def test_run_job_rejects_unknown_types():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        c.post("/projects", data={"name": "J", "domain": "j-test.com"})
+        pid = [x for x in c.get("/api/projects").json() if x["domain"] == "j-test.com"][0]["id"]
+        assert c.post(f"/p/{pid}/jobs/rm_rf", follow_redirects=False).status_code == 404

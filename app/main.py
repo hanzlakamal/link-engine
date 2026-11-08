@@ -279,7 +279,11 @@ def disavow(pid: int, db: Session = Depends(get_db)):
 
 @app.post("/p/{pid}/jobs/{jtype}")
 def run_job(pid: int, jtype: str, db: Session = Depends(get_db)):
+    from app.worker import HANDLERS
+
     _project(db, pid)
+    if jtype not in HANDLERS:
+        raise HTTPException(404, "Unknown job")
     enqueue(db, jtype, pid)
     db.commit()
     return _back(pid)
@@ -536,33 +540,24 @@ PLATFORM_CHOICES = list(HUB_PLATFORMS) + ["social_engine"] + sorted(set(COMPOSE_
 
 
 def _social_engine(db: Session, pid: int):
-    return db.scalar(select(PlatformAccount).where(PlatformAccount.project_id == pid,
-                     PlatformAccount.platform == "social_engine", PlatformAccount.active.is_(True)))
+    from app import social
+
+    return social.engine_account(db, pid)
 
 
-def social_engine_call(acct, method: str, path: str) -> dict:
-    """Talk to the Social & Community engine (traffic-engine) for this project."""
-    import httpx
+def social_engine_call(acct, method: str, path: str, payload: dict | None = None) -> dict:
+    from app import social
 
-    from urllib.parse import urlparse
-
-    base = (acct.data or {}).get("site_url", "").rstrip("/")
-    try:
-        u = urlparse(base)
-        # Railway private network (same project, never public) is allowed; everything else must be public.
-        if not (u.scheme == "http" and (u.hostname or "").endswith(".railway.internal")):
-            authz.assert_public_url(base)
-        token = json.loads(decrypt(acct.secret) or "{}").get("password", "")
-        r = httpx.request(method, base + path, headers={"Authorization": f"Bearer {token}"}, timeout=15)
-        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"error": r.status_code}
-    except Exception as e:  # noqa: BLE001
-        return {"error": str(e)[:120]}
+    return social.call(acct, method, path, payload)
 
 
 @app.post("/p/{pid}/jobs/social_scan")
 def social_scan(pid: int, request: Request, db: Session = Depends(get_db)):
+    from app import social
+
     acct = _social_engine(db, pid)
     if acct:
+        social.push(db, _project(db, pid))  # engine always scans with the dashboard's current settings
         res = social_engine_call(acct, "POST", "/api/scan")
         audit(db, me(request).id, f"Social engine scan: {res}", pid)
         db.commit()
@@ -589,6 +584,15 @@ def add_account(pid: int, request: Request, platform: str = Form(...), persona: 
                            data={"site_url": site_url.strip(), "public_url": public_url.strip(), "host": host.strip()}))
     audit(db, me(request).id, f"Connected account {platform} {handle or site_url}", pid)
     db.commit()
+    if platform == "social_engine":  # hand the engine this project's settings right away
+        from app import social
+
+        p = _project(db, pid)
+        if not ((p.settings or {}).get("social") or {}).get("queries"):
+            enqueue(db, "suggest_social", pid)  # Claude fills targets, then pushes them
+            db.commit()
+        else:
+            social.push(db, p)
     return _back(pid, "accounts")
 
 
@@ -852,6 +856,9 @@ async def save_settings(pid: int, request: Request, db: Session = Depends(get_db
     p.client, p.niche, p.updated_at = form.get("client", ""), form.get("niche", ""), utcnow()
     audit(db, me(request).id, "Changed project settings", pid)
     db.commit()
+    from app import social
+
+    social.push(db, p)
     return RedirectResponse(f"/p/{pid}/settings?saved=1", status_code=303)
 
 

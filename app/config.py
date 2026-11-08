@@ -158,6 +158,13 @@ DEFAULTS: dict = {
         "shopify_api_version": "2026-01",
     },
     "alerts": {"daily_digest": True, "digest_hour": 8, "chat": {"provider": "", "target": ""}},
+    # Social & Community engine (Reddit + Quora answers via Telegram). Empty = Claude fills it ("Suggest targets").
+    "social": {
+        "brand_offer": "", "relevant": "", "looking_now": "", "persona": "", "rules": "", "link_line": "",
+        "queries": [], "subreddits": [], "avoid_subreddits": [], "reject_topics": [], "pages": [],
+        "quora": True, "quora_queries": [],
+        "link_every_nth": 3, "max_drafts_per_scan": 5, "max_age_hours": 24,
+    },
 }
 
 

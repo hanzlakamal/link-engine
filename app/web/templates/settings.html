@@ -17,7 +17,7 @@
 <textarea name="advanced" rows="5">{{ advanced|tojson_pretty }}</textarea>
 <p><button class="primary">Save</button> <small>Only values different from defaults are stored.</small></p>
 </div>
-{% for sec in fields %}<div class="card"><h3>{{ labels.get(sec.path, sec.label) }}</h3>
+{% for sec in fields %}<div class="card" id="{{ sec.path }}"><h3>{{ labels.get(sec.path, sec.label) }}</h3>
 {% if sec.type == 'group' %}{% for c in sec.children %}{{ render(c) }}{% endfor %}{% else %}{{ render(sec) }}{% endif %}
 <p><button class="primary">Save</button></p></div>{% endfor %}
 </div></form>{% endblock %}

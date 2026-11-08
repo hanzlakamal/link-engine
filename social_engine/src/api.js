@@ -1,6 +1,6 @@
 // Small token-protected API so the Buzz Scouts Engine dashboard can show stats and trigger a scan.
 // Enabled only when ENGINE_API_TOKEN is set. Railway provides PORT.
-const http = require("http"), crypto = require("crypto"), store = require("./store"), engine = require("./engine");
+const http = require("http"), crypto = require("crypto"), store = require("./store"), engine = require("./engine"), cfg = require("./config");
 const TOKEN = process.env.ENGINE_API_TOKEN || "";
 const ok = (req) => {
   const got = Buffer.from((req.headers.authorization || "").replace(/^Bearer /, ""));
@@ -17,9 +17,16 @@ if (TOKEN) {
       const items = Object.values(store.db.items);
       const byStatus = items.reduce((a, i) => ((a[i.status || "new"] = (a[i.status || "new"] || 0) + 1), a), {});
       const recent = items.sort((a, b) => String(b.updated || "").localeCompare(String(a.updated || ""))).slice(0, 10)
-        .map((i) => ({ status: i.status, updated: i.updated, title: i.title, subreddit: i.subreddit, url: i.url }));
-      return send(200, { project: process.env.PROJECT || "thepesthelp", byStatus, approved: store.db.approvedCount,
+        .map((i) => ({ status: i.status, updated: i.updated, title: i.title, sub: i.sub, source: i.source, url: i.url }));
+      return send(200, { project: process.env.PROJECT || "thepesthelp", brand: cfg.brand.name, quora: !!(cfg.quora && require("./quora").enabled()), byStatus, approved: store.db.approvedCount,
                          seen: Object.keys(store.db.seen).length, scanning, recent });
+    }
+    if (req.method === "GET" && req.url === "/api/config") return send(200, cfg.public());
+    if (req.method === "POST" && req.url === "/api/config") {
+      let raw = "";
+      for await (const chunk of req) { raw += chunk; if (raw.length > 200000) return send(413, { error: "too large" }); }
+      try { return send(200, { saved: Object.keys(cfg.update(JSON.parse(raw || "{}"))) }); }
+      catch (e) { return send(400, { error: String(e.message).slice(0, 120) }); }
     }
     if (req.method === "POST" && req.url === "/api/scan") {
       if (scanning) return send(409, { error: "scan already running" });
