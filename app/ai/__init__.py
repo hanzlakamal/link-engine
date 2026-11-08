@@ -182,6 +182,24 @@ def social_targets(*, brand: str, domain: str, niche: str, market: str, voice: d
                           "reject_topics": "list", "quora_queries": "list", "pages": "list"}, max_tokens=4000)
 
 
+PIN_PROMPT = """Write Pinterest pins for {brand}. Brand voice: {voice}
+Boards to use: {boards}
+For EACH page below write: title (max 90 chars, keyword-rich, natural), description (150-400 chars, what it is, who it's for,
+occasion/gift angle, 2-4 relevant keywords woven in, no hashtags spam, no prices or shipping promises), and board (one of the
+boards, verbatim). If no boards are given, first propose 3-6 board names (keyword-style, e.g. "Funny Dad Shirts") in 'boards'
+and use them. Keep each pin's 'url' exactly as given.
+Pages:
+{pages}"""
+
+
+def pin_copy(*, brand: str, voice: dict, pages: list[dict], boards: list[str]) -> dict:
+    listing = "\n".join(f"- url: {p['url']} | title: {p['title'][:120]} | about: {p['description'][:250]}" for p in pages)
+    return complete_json(PIN_PROMPT.format(brand=brand, voice=json.dumps(voice or {})[:1500],
+                                           boards=", ".join(boards) or "(none yet)", pages=listing),
+                         {"boards": "list", "pins": {"url": "str", "title": "str", "description": "str", "board": "str"}},
+                         max_tokens=8000)
+
+
 def draft_content(*, brand: str, domain: str, voice: dict, platform: str, content_type: str, goal: str,
                   target_url: str = "", premium: bool = False, sender: dict | None = None,
                   categories: list[str] | None = None) -> dict:

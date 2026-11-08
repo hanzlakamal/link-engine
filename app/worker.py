@@ -77,6 +77,9 @@ def _voice(s, project, payload):
     pipeline.event(s, project.id, "Brand voice profile drafted — review it in Settings.", "action")
     if not ((project.settings or {}).get("social") or {}).get("queries"):
         enqueue(s, "suggest_social", project.id)
+    if project_cfg(project).get("pinterest", {}).get("enabled", True) and not s.scalar(
+            select(ContentItem.id).where(ContentItem.project_id == project.id, ContentItem.channel == "pinterest").limit(1)):
+        enqueue(s, "build_pins", project.id)  # first batch of pins for a new project
     return {"keys": list(project.brand_voice)}
 
 
@@ -112,6 +115,17 @@ def _site_pages(domain: str, limit: int = 60) -> list[str]:
         if len(paths) >= limit:
             break
     return paths[:limit]
+
+
+@job("build_pins")
+def _build_pins(s, project, payload):
+    from app import pinterest
+
+    r = pinterest.build_pins(s, project, payload.get("n"))
+    pipeline.event(s, project.id, f"Pinterest: {r['created']} new pin(s) ready for approval (Link publishing > Pins)"
+                   if r["created"] else f"Pinterest: nothing new ({r.get('reason', 'all pages already pinned')})",
+                   "action" if r["created"] else "info")
+    return r
 
 
 @job("suggest_social")
@@ -199,6 +213,8 @@ def _publish(s, project, payload):
         return {"skipped": True}
     if item.channel in ("outreach_email", "email"):
         return HANDLERS["send_email"](s, project, payload)
+    if item.channel == "pinterest":
+        return _publish_pin(s, project, item, payload)
     cfg = project_cfg(project)
     ok, msg = limits.allow(s, cfg, project.id, item.channel)
     if not ok:
@@ -222,6 +238,28 @@ def _publish(s, project, payload):
                          status="pending", content_item_id=item.id, credited_to=payload.get("user_id")))
     pipeline.event(s, project.id, f"{item.channel}: {res.message} {res.url}", "win", user_id=payload.get("user_id"))
     return {"ok": True, "url": res.url}
+
+
+def _publish_pin(s, project, item, payload):
+    from app import limits, pinterest
+
+    acct = s.scalar(select(PlatformAccount).where(PlatformAccount.project_id == project.id,
+                    PlatformAccount.platform == "pinterest", PlatformAccount.active.is_(True)))
+    if acct is None:  # no API access yet: stays approved and goes into the bulk CSV
+        item.data = {**(item.data or {}), "note": "Approved. Waiting for the bulk CSV (or connect a Pinterest account)."}
+        return {"deferred": "no pinterest account"}
+    ok, msg = limits.allow(s, project_cfg(project), project.id, "pinterest")
+    if not ok:
+        item.status = "scheduled"
+        return {"deferred": msg}
+    ok, msg, url = pinterest.publish(item, acct)
+    if not ok:
+        item.status, item.data = "failed", {**(item.data or {}), "error": msg}
+        pipeline.event(s, project.id, msg, "warn")
+        return {"ok": False, "error": msg}
+    limits.record(s, project.id, "pinterest", acct.id)
+    item.status, item.published_url, item.published_by = "published", url, payload.get("user_id")
+    return {"ok": True, "url": url}
 
 
 @job("find_contacts")

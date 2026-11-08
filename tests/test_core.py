@@ -684,3 +684,40 @@ def test_run_job_rejects_unknown_types():
         c.post("/projects", data={"name": "J", "domain": "j-test.com"})
         pid = [x for x in c.get("/api/projects").json() if x["domain"] == "j-test.com"][0]["id"]
         assert c.post(f"/p/{pid}/jobs/rm_rf", follow_redirects=False).status_code == 404
+
+
+def test_pinterest_build_approve_csv_flow(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import ai, pinterest
+    from app.main import app
+    from app.models import ContentItem
+    from app.worker import HANDLERS
+
+    monkeypatch.setattr(pinterest, "site_urls", lambda d, limit=400: ["https://pin-test.com/product/a", "https://pin-test.com/product/b"])
+    monkeypatch.setattr(pinterest, "page_meta", lambda u: {"url": u, "image": u + ".jpg", "title": "T " + u[-1], "description": "d"})
+    monkeypatch.setattr(ai, "pin_copy", lambda **k: {"boards": ["Funny Dad Shirts"], "pins": [
+        {"url": p["url"], "title": "Pin " + p["url"][-1], "description": "desc", "board": "Funny Dad Shirts"} for p in k["pages"]]})
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        c.post("/projects", data={"name": "Pin", "domain": "pin-test.com"})
+        pid = [x for x in c.get("/api/projects").json() if x["domain"] == "pin-test.com"][0]["id"]
+        with session_scope() as s:
+            p = s.get(Project, pid)
+            assert pinterest.build_pins(s, p)["created"] == 2
+            assert pinterest.build_pins(s, p)["created"] == 0  # already pinned pages are skipped
+            assert p.settings["pinterest"]["boards"] == ["Funny Dad Shirts"]
+        html = c.get(f"/p/{pid}/queue?view=approve&show=pins").text
+        assert "Pin a" in html and "Approve all 2" in html
+        assert "Pin a" not in c.get(f"/p/{pid}/queue?view=approve").text  # pins don't bury emails/posts
+        c.post(f"/p/{pid}/pins/approve_all")
+        with session_scope() as s:
+            for it in s.scalars(select(ContentItem).where(ContentItem.project_id == pid, ContentItem.channel == "pinterest")):
+                assert it.status == "approved"
+                HANDLERS["publish_content"](s, s.get(Project, pid), {"content_id": it.id})
+                assert it.status == "approved" and "bulk CSV" in it.data["note"]  # no account -> waits for CSV
+        csv_text = c.get(f"/p/{pid}/pins.csv").text
+        assert csv_text.startswith("Title,Media URL,Pinterest board") and "https://pin-test.com/product/a.jpg" in csv_text
+        c.post(f"/p/{pid}/pins/uploaded")
+        with session_scope() as s:
+            assert {i.status for i in s.scalars(select(ContentItem).where(ContentItem.project_id == pid))} == {"published"}

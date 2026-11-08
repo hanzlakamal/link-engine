@@ -136,7 +136,7 @@ RULES: list[tuple[str, str, str]] = [
     ("*", r"^/account", "client"),
     ("*", r"^/(settings|team|audit)", "admin"),
     ("POST", r"^/projects$", "manager"),
-    ("POST", r"^/p/\d+/(settings|accounts|competitors|playbooks|jobs|import)", "manager"),
+    ("POST", r"^/p/\d+/(settings|accounts|competitors|playbooks|jobs|import|pins)", "manager"),
     ("POST", r"^/p/\d+/(opportunities|content|tasks|articles|contacts|outreach|links)", "builder"),
     ("POST", r".*", "admin"),
 ]
@@ -169,7 +169,7 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    "Content-Security-Policy": ("default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; "
                                 "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'; "
                                 "base-uri 'none'; object-src 'none'"),
 }

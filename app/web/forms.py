@@ -16,6 +16,7 @@ SECTION_LABELS = {
     "business": "Business profile (directory submissions)", "publishing": "Publishing (blog hub)",
     "outreach": "Outreach & PR", "limits": "Frequency limits (anti-spam)", "alerts": "Alerts",
     "social": "Social & Community (Reddit + Quora answers in Telegram)",
+    "pinterest": "Pinterest (pins from your products)",
 }
 HELP = {
     "discovery.providers": "Order to try data sources, comma separated (ahrefs, dataforseo).",
@@ -61,6 +62,10 @@ HELP = {
     "social.quora": "Also find Quora questions (uses DataForSEO, about $0.002 per phrase per scan).",
     "social.quora_queries": "Quora search phrases (empty = first 6 Reddit phrases).",
     "social.link_every_nth": "Include a link in at most 1 of every N posted answers.",
+    "pinterest.enabled": "Build pins automatically for this project (new projects get a first batch after the brand voice).",
+    "pinterest.boards": "Board names. Empty = Claude proposes boards on the first build.",
+    "pinterest.pins_per_build": "How many new pins each 'Build pins' makes (one per product/collection page not pinned yet).",
+    "pinterest.csv_pins_per_day": "Spacing for the bulk-upload CSV (Pinterest schedules them).",
 }
 CHOICES = {"automation.default_mode": ["approve", "auto", "off"], "publishing.own_blog_status": ["publish", "draft"]}
 

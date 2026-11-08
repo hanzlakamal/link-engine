@@ -158,6 +158,8 @@ DEFAULTS: dict = {
         "shopify_api_version": "2026-01",
     },
     "alerts": {"daily_digest": True, "digest_hour": 8, "chat": {"provider": "", "target": ""}},
+    # Pinterest: pins built from product/collection pages; posted via API when an account is connected, else CSV.
+    "pinterest": {"enabled": True, "boards": [], "pins_per_build": 20, "csv_pins_per_day": 3},
     # Social & Community engine (Reddit + Quora answers via Telegram). Empty = Claude fills it ("Suggest targets").
     "social": {
         "brand_offer": "", "relevant": "", "looking_now": "", "persona": "", "rules": "", "link_line": "",

@@ -53,8 +53,15 @@ def get_channel(name: str) -> Channel:
         return ch
 
 
-for _n in list(COMPOSE_URLS) + ["instagram", "tiktok", "facebook", "youtube", "x", "profile", "directory", "forum"]:
+for _n in [c for c in COMPOSE_URLS if c != "pinterest"] + ["instagram", "tiktok", "facebook", "youtube", "x", "profile", "directory", "forum"]:
     channels.register(_n)(type(f"{_n.title()}Channel", (Channel,), {}))
+
+
+@channels.register("pinterest")
+class PinterestChannel(Channel):
+    """API channel: approved pins post via the connected Pinterest account, or wait for the bulk CSV."""
+
+    mode = "api"
 
 
 HUB_PLATFORMS = ("wordpress_hub", "shopify_hub")

@@ -207,6 +207,8 @@ def create_project(name: str = Form(...), domain: str = Form(...), stage: str = 
         if c.strip():
             db.add(Competitor(project_id=p.id, domain=domain_of(c), source="manual", confirmed=True))
     db.add(Event(project_id=p.id, message=f"Project created: {p.name} ({p.domain})"))
+    # one-time setup: brand voice -> social targets + first Pinterest pins (no recurring jobs)
+    enqueue(db, "build_brand_voice", p.id)
     db.commit()
     return _back(p.id)
 
@@ -440,7 +442,11 @@ def queue_page(pid: int, request: Request, page: int = 1, show: str = "", view: 
         if show == "emails":
             iq = iq.where(ContentItem.channel.in_(mail))
         elif show == "posts":
-            iq = iq.where(ContentItem.channel.notin_(mail))
+            iq = iq.where(ContentItem.channel.notin_(mail + ("pinterest",)))
+        elif show == "pins":
+            iq = iq.where(ContentItem.channel == "pinterest")
+        else:  # pins come in batches; they have their own filter so they don't bury emails and posts
+            iq = iq.where(ContentItem.channel != "pinterest")
         if search.strip():
             from sqlalchemy import or_
 
@@ -463,6 +469,11 @@ def queue_page(pid: int, request: Request, page: int = 1, show: str = "", view: 
     return templates.TemplateResponse(request, "queue.html", {
         "p": p, "items": items, "tab": "queue", "pager": pager, "show": show, "view": view, "views": QUEUE_VIEWS,
         "counts": counts, "moved": moved, "search": search, "links": links,
+        "pin_counts": dict(db.execute(select(ContentItem.status, func.count()).where(
+            ContentItem.project_id == pid, ContentItem.channel == "pinterest").group_by(ContentItem.status)).all()),
+        "pin_api": bool(db.scalar(select(PlatformAccount.id).where(PlatformAccount.project_id == pid,
+                                                                   PlatformAccount.platform == "pinterest",
+                                                                   PlatformAccount.active.is_(True)).limit(1))),
         "kit": (p.brand_voice or {}).get("profile_kit"), "kit_opps": kit_opps, "kit_done": kit_done,
         "biz": {k: v for k, v in {**project_cfg(p)["business"],
                                   "business_name": project_cfg(p)["business"].get("business_name") or p.name}.items() if v},
@@ -496,6 +507,46 @@ def _compose_url(db: Session, item: ContentItem) -> str:
         if o and o.domain:
             url = f"https://{o.domain}"
     return url
+
+
+@app.get("/p/{pid}/pins.csv")
+def pins_csv(pid: int, db: Session = Depends(get_db)):
+    from fastapi.responses import Response
+
+    from app import pinterest
+
+    p = _project(db, pid)
+    items = db.scalars(select(ContentItem).where(ContentItem.project_id == pid, ContentItem.channel == "pinterest",
+                                                 ContentItem.status.in_(("approved", "scheduled")))
+                       .order_by(ContentItem.id)).all()
+    per_day = int(project_cfg(p).get("pinterest", {}).get("csv_pins_per_day") or 3)
+    return Response(pinterest.bulk_csv(items, per_day), media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="pinterest-bulk-{p.domain}-{date.today().isoformat()}.csv"'})
+
+
+@app.post("/p/{pid}/pins/{action}")
+def pins_action(pid: int, action: str, request: Request, db: Session = Depends(get_db)):
+    """approve_all: approve every pin awaiting approval; uploaded: mark CSV-exported pins as published."""
+    u = me(request)
+    q = select(ContentItem).where(ContentItem.project_id == pid, ContentItem.channel == "pinterest")
+    n = 0
+    if action == "approve_all":
+        for it in db.scalars(q.where(ContentItem.status == "pending_approval")):
+            it.status, it.approved_by = "approved", u.id
+            enqueue(db, "publish_content", pid, content_id=it.id, user_id=u.id)
+            n += 1
+    elif action == "uploaded":
+        for it in db.scalars(q.where(ContentItem.status.in_(("approved", "scheduled")))):
+            it.status, it.published_by = "published", u.id
+            it.data = {**(it.data or {}), "via": "bulk csv"}
+            n += 1
+    elif action == "build":
+        enqueue(db, "build_pins", pid)
+    else:
+        raise HTTPException(404)
+    db.add(Event(project_id=pid, user_id=u.id, level="info", message=f"Pins {action}: {n}"))
+    db.commit()
+    return RedirectResponse(f"/p/{pid}/queue?view=approve&show=pins", status_code=303)
 
 
 @app.post("/p/{pid}/articles")

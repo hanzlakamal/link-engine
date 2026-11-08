@@ -33,7 +33,7 @@ paste the live URL &rarr; it moves to <i>Published</i> and the link is scored in
 <div class="row" style="margin:8px 0">
 <form method="get" class="row"><input type="hidden" name="view" value="{{ view }}">
 <input name="search" value="{{ search }}" placeholder="Search title, channel or URL">
-<select name="show"><option value="">emails &amp; posts</option><option value="emails" {{ 'selected' if show=='emails' }}>emails only</option><option value="posts" {{ 'selected' if show=='posts' }}>posts &amp; articles only</option></select>
+<select name="show"><option value="">emails &amp; posts</option><option value="emails" {{ 'selected' if show=='emails' }}>emails only</option><option value="posts" {{ 'selected' if show=='posts' }}>posts &amp; articles only</option><option value="pins" {{ 'selected' if show=='pins' }}>Pinterest pins ({{ pin_counts.get(views[view][1][0], 0) if view in views else 0 }})</option></select>
 <button>Filter</button></form><small>{{ pager.total }} item(s)</small>
 <span style="flex:1"></span>
 {% if view == 'approve' %}<details><summary class="btn">+ New blog article</summary>
@@ -43,6 +43,17 @@ paste the live URL &rarr; it moves to <i>Published</i> and the link is scored in
 <small>Published to your blog hub (WordPress/Shopify) after approval.</small></form></details>{% endif %}
 </div>
 
+{% if show == 'pins' %}
+<div class="card" style="margin-bottom:12px"><div class="row"><b>Pinterest</b>
+<small>{{ pin_counts.get('pending_approval', 0) }} to approve · {{ pin_counts.get('approved', 0) + pin_counts.get('scheduled', 0) }} approved · {{ pin_counts.get('published', 0) }} published</small>
+<span style="flex:1"></span>
+<form method="post" action="/p/{{ p.id }}/pins/build" class="inline"><button>Build more pins</button></form>
+{% if pin_counts.get('pending_approval') %}<form method="post" action="/p/{{ p.id }}/pins/approve_all" class="inline"><button class="primary">Approve all {{ pin_counts.get('pending_approval') }}</button></form>{% endif %}
+{% if not pin_api and (pin_counts.get('approved', 0) + pin_counts.get('scheduled', 0)) %}<a class="btn primary" href="/p/{{ p.id }}/pins.csv">Download bulk CSV</a>
+<form method="post" action="/p/{{ p.id }}/pins/uploaded" class="inline" onsubmit="return confirm('Mark all approved pins as uploaded to Pinterest?')"><button>I uploaded the CSV</button></form>{% endif %}</div>
+<small>{% if pin_api %}A Pinterest account is connected: approved pins post automatically (daily limit in Settings &rarr; Frequency limits).
+{% else %}No Pinterest API access yet: approve pins, click <b>Download bulk CSV</b>, then in Pinterest go to Create &rarr; Bulk create Pins and upload it (Pinterest schedules them a few a day). Then click "I uploaded the CSV". Connect a <i>pinterest</i> account (access token) under Accounts later to post automatically.{% endif %}</small></div>
+{% endif %}
 {% for i in items %}
 {% set is_mail = i.channel in ('outreach_email','email') %}
 {% set o = opps.get(i.opportunity_id) %}
@@ -83,12 +94,14 @@ paste the live URL &rarr; it moves to <i>Published</i> and the link is scored in
   {% if recipients.get(i.id) %}<select name="contact_id">{% for c, generic in recipients[i.id] %}<option value="{{ c.id }}" {{ 'selected' if c.id == i.contact_id }}>{{ c.name ~ ' · ' if c.name }}{{ c.email if full_contacts else c.email|mask_email }}{{ ' (general inbox)' if generic }}{{ ' · ' ~ c.status if c.status != 'new' }}</option>{% endfor %}</select>
   <small>A named person is picked first; general inboxes like info@ come last.</small>
   {% else %}<small style="color:var(--bad)">No contact yet: click "Find contact" on the opportunity, or add one in Outreach &amp; PR.</small>{% endif %}</p>{% endif %}
+  {% if i.channel == 'pinterest' %}<div class="row" style="align-items:flex-start"><img src="{{ i.data.image }}" alt="" style="width:120px;border-radius:8px" loading="lazy">
+  <small>Board: <b>{{ i.data.board }}</b><br>Links to: <a href="{{ i.data.link }}" target="_blank" rel="noopener">{{ (i.data.link or '').split('://')[-1][:60] }}</a>{% if i.data.note %}<br>{{ i.data.note }}{% endif %}</small></div>{% endif %}
   <p><input name="title" value="{{ i.title }}" style="width:100%"></p>
   {% if i.channel == 'own_blog' %}<p class="row"><label>Category</label>
   {% if i.data.categories %}<select name="category">{% for c in i.data.categories %}<option {{ 'selected' if c == i.data.category }}>{{ c }}</option>{% endfor %}</select>
   {% else %}<input name="category" value="{{ i.data.category or '' }}" placeholder="Category / tag">{% endif %}
   <small>Picked by Claude; change before approving.</small></p>{% endif %}
-  <p><textarea name="body" rows="10">{{ i.body }}</textarea></p>
+  <p><textarea name="body" rows="{{ 4 if i.channel == 'pinterest' else 10 }}">{{ i.body }}</textarea></p>
   <div class="row">
   {% if i.status=='pending_approval' %}<button class="primary" name="action" value="approve">{{ ('Approve & send' if is_mail else 'Approve & publish') if api[i.id] else 'Approve' }}</button>{% endif %}
   {% if i.status=='failed' %}<button name="action" value="restore">Back to To approve</button>{% endif %}
