@@ -602,7 +602,7 @@ def social_engine_call(acct, method: str, path: str, payload: dict | None = None
     return social.call(acct, method, path, payload)
 
 
-@app.post("/p/{pid}/jobs/social_scan")
+@app.post("/p/{pid}/social/scan")
 def social_scan(pid: int, request: Request, db: Session = Depends(get_db)):
     from app import social
 

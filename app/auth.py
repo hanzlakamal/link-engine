@@ -137,7 +137,7 @@ RULES: list[tuple[str, str, str]] = [
     ("*", r"^/(settings|team|audit)", "admin"),
     ("POST", r"^/projects$", "manager"),
     ("POST", r"^/p/\d+/(settings|accounts|competitors|playbooks|jobs|import|pins)", "manager"),
-    ("POST", r"^/p/\d+/(opportunities|content|tasks|articles|contacts|outreach|links)", "builder"),
+    ("POST", r"^/p/\d+/(opportunities|content|tasks|articles|contacts|outreach|links|social)", "builder"),
     ("POST", r".*", "admin"),
 ]
 

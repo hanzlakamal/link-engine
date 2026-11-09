@@ -34,7 +34,7 @@
 {% else %}<p>{% for k,v in social.byStatus.items() %}<span class="chip">{{ k }} {{ v }}</span> {% endfor %}<span class="chip win">approved {{ social.approved }}</span> <small>{{ social.seen }} threads seen</small></p>
 <p><small>{{ social.brand or '' }} · Reddit{{ ' + Quora' if social.quora else '' }}</small></p>
 {% for r in social.recent[:5] %}<div><small>{{ r.status }} · {{ 'Quora' if r.source == 'quora' else 'r/' ~ (r.sub or r.subreddit) }}</small> {{ (r.title or '')[:70] }}</div>{% endfor %}
-<div class="row" style="margin-top:8px"><form method="post" action="/p/{{p.id}}/jobs/social_scan" class="inline"><button class="primary" {{ 'disabled' if social.scanning }}>{{ 'Scanning…' if social.scanning else 'Scan now' }}</button></form>
+<div class="row" style="margin-top:8px"><form method="post" action="/p/{{p.id}}/social/scan" class="inline"><button class="primary" {{ 'disabled' if social.scanning }}>{{ 'Scanning…' if social.scanning else 'Scan now' }}</button></form>
 <form method="post" action="/p/{{p.id}}/jobs/suggest_social" class="inline"><button title="Claude fills empty fields in Settings > Social & Community from your site">Suggest targets</button></form>
 <a class="btn" href="/p/{{ p.id }}/settings#social">Edit targets</a> <small>Drafts arrive in Telegram.</small></div>{% endif %}
 </div>

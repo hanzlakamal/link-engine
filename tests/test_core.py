@@ -721,3 +721,16 @@ def test_pinterest_build_approve_csv_flow(monkeypatch):
         c.post(f"/p/{pid}/pins/uploaded")
         with session_scope() as s:
             assert {i.status for i in s.scalars(select(ContentItem).where(ContentItem.project_id == pid))} == {"published"}
+
+
+def test_social_scan_route_exists():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        c.post("/projects", data={"name": "SS", "domain": "ss-test.com"})
+        pid = [x for x in c.get("/api/projects").json() if x["domain"] == "ss-test.com"][0]["id"]
+        r = c.post(f"/p/{pid}/social/scan", follow_redirects=False)
+        assert r.status_code == 303  # no engine connected -> back to overview, no "Unknown job"
