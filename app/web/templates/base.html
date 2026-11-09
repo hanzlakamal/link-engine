@@ -38,7 +38,7 @@ form.inline{display:inline}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:
 {% if p is defined and p %}
 <h2 style="margin:0">{{ p.name }} <small>{{ p.domain }} · {{ p.stage }}</small></h2>
 <nav class="tabs">
-{% for t,l in [('overview','Overview'),('opportunities','Opportunities'),('queue','Link publishing'),('outreach','Outreach & PR'),('links','Links earned'),('accounts','Accounts'),('tasks','Playbook tasks'),('competitors','Competitors'),('settings','Settings')] %}
+{% for t,l in [('overview','Overview'),('opportunities','Opportunities'),('queue','Link publishing'),('outreach','Outreach & PR'),('links','Links earned'),('social','Social'),('accounts','Accounts'),('tasks','Playbook tasks'),('competitors','Competitors'),('settings','Settings')] %}
 <a href="/p/{{p.id}}{{ '' if t=='overview' else '/'+t }}" class="{{ 'on' if tab==t }}">{{ l }}</a>{% endfor %}
 </nav>
 {% if p.needs_input %}<div class="banner"><b>Needs your input:</b> {{ p.needs_input }}

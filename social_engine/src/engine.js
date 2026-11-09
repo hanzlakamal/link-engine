@@ -39,7 +39,10 @@ async function scan() {
   let sent = 0;
   for (const t of fresh) {
     if (sent >= cfg.maxDraftsPerScan) break;
-    try { const it = await handle(t); if (!it) continue; store.put(it); await tg.sendItem(it); sent++; } catch (e) { console.warn("process", e.message); }
+    try {
+      const it = await handle(t); if (!it) continue; store.put(it); sent++;
+      if (tg.enabled()) await tg.sendItem(it).catch((e) => console.warn("telegram", e.message));  // optional phone alert
+    } catch (e) { console.warn("process", e.message); }
   }
   store.prune();
   console.log(`[scan] ${all.length} found, ${fresh.length} new, ${sent} drafts sent`);
@@ -49,8 +52,8 @@ async function scan() {
 async function onCallback(cb) {
   const [action, id] = cb.data.split(":"); const it = store.get(id);
   if (!it) return tg.answer(cb.id, "Not found");
-  if (action === "posted") { store.db.approvedCount++; store.log(it, "posted"); await tg.editItem(it, cb.message, "✅ Marked posted"); return tg.answer(cb.id, "Logged"); }
-  if (action === "skip") { store.log(it, "skipped"); await tg.editItem(it, cb.message, "❌ Skipped"); return tg.answer(cb.id, "Skipped"); }
+  if (action === "posted") { if (it.status !== "posted") store.db.approvedCount++; it.by = "telegram"; store.log(it, "posted"); await tg.editItem(it, cb.message, "✅ Marked posted"); return tg.answer(cb.id, "Logged"); }
+  if (action === "skip") { it.by = "telegram"; store.log(it, "skipped"); await tg.editItem(it, cb.message, "❌ Skipped"); return tg.answer(cb.id, "Skipped"); }
   if (action === "toggle") it.withLink = !it.withLink;
   if (action === "redraft" || action === "toggle") { await tg.answer(cb.id, "Redrafting…"); it.draft = await claude.draft(it, it.page, it.withLink); store.put(it); return tg.editItem(it, cb.message); }
 }

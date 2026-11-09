@@ -9,6 +9,7 @@ const where = (it) => (it.source === "quora" ? "<b>Quora</b>" : `<b>r/${esc(it.s
 const card = (it) => `${where(it)} · ${esc(it.category)}\n<b>${esc(it.title)}</b>\n${esc(it.url)}\n\n<i>Why:</i> ${esc(it.why || "")}\n\n<b>Draft${it.withLink ? " (with link)" : " (no link)"}:</b>\n<code>${esc(it.draft)}</code>`;
 const kb = (id) => ({ inline_keyboard: [[{ text: "✅ Posted it", callback_data: `posted:${id}` }, { text: "🔁 Redraft", callback_data: `redraft:${id}` }], [{ text: "🔗/🚫 Toggle link", callback_data: `toggle:${id}` }, { text: "❌ Skip", callback_data: `skip:${id}` }]] });
 module.exports = {
+  enabled: () => !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
   esc, call,
   send: (text, chatId) => call("sendMessage", { chat_id: chatId || CHAT(), text, parse_mode: "HTML", disable_web_page_preview: true }),
   sendItem: (it) => call("sendMessage", { chat_id: CHAT(), text: card(it), parse_mode: "HTML", disable_web_page_preview: true, reply_markup: kb(it.id) }),

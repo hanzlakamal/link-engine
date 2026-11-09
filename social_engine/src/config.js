@@ -66,8 +66,18 @@ const PEST = {
   models: { score: process.env.SCORE_MODEL || "claude-haiku-5-5", draft: process.env.DRAFT_MODEL || "claude-sonnet-5-5" }
 };
 
-const base = project && project !== "thepesthelp" ? require("../configs/" + project) : PEST;
-const cfg = { ...PEST, ...base, brand: { ...PEST.brand, ...(base.brand || {}) } };
+// New brands start from neutral defaults (never pest targets) until the dashboard pushes theirs.
+const GENERIC = {
+  site: process.env.SITE_URL || "", pinsUrl: "", brand: { name: process.env.BRAND_NAME || project || "Brand", offer: "", relevant: "",
+  live_problem: "", persona: "", rules: "", link_line: "" }, scanEveryMinutes: Number(process.env.SCAN_EVERY_MINUTES || 60),
+  maxAgeHours: 24, maxComments: 60, maxDraftsPerScan: 5, linkEveryNth: 3, queries: [], subreddits: [], avoidSubreddits: [],
+  quora: true, quoraQueries: [], pages: [{ url: "/", about: "home page" }], rejectTopics: [], models: PEST.models,
+};
+let base = PEST;
+if (project && project !== "thepesthelp") {
+  try { base = { ...GENERIC, ...require("../configs/" + project) }; } catch { base = GENERIC; }
+}
+const cfg = { ...base, brand: { ...GENERIC.brand, ...(base.brand || {}) } };
 
 // keys the dashboard may set (anything else is ignored)
 const PUSHABLE = ["site", "brand", "queries", "subreddits", "avoidSubreddits", "pages", "rejectTopics", "quora",
@@ -77,6 +87,11 @@ function applyOverrides(o) {
   for (const k of PUSHABLE) {
     if (o[k] === undefined || o[k] === null) continue;
     if (Array.isArray(o[k]) && !o[k].length) continue;      // empty list = keep the default
+    if (k === "pages") {  // keep page descriptions we already know when the dashboard sends bare paths
+      const about = Object.fromEntries((cfg.pages || []).map((p) => [p.url, p.about]));
+      cfg.pages = o.pages.map((p) => (typeof p === "string" ? { url: p, about: about[p] || "" } : { url: p.url, about: p.about || about[p.url] || "" }));
+      continue;
+    }
     cfg[k] = k === "brand" ? { ...cfg.brand, ...o[k] } : o[k];
   }
 }

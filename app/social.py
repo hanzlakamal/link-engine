@@ -68,6 +68,31 @@ def _quora_creds() -> dict:
     return {"dataforseo": {"login": st.dataforseo_login, "password": st.dataforseo_password}} if st.dataforseo_login else {}
 
 
+def _host(url: str) -> str:
+    return (urlparse(url if "://" in url else "https://" + url).hostname or "").lower().removeprefix("www.")
+
+
+def import_from_engine(db: Session, project: Project) -> bool:
+    """If the engine is already set up for this project's site (e.g. a migrated bot), copy its settings into the
+    dashboard so nothing hand-tuned is lost. Returns True when imported."""
+    acct = engine_account(db, project.id)
+    conf = call(acct, "GET", "/api/config") if acct else {}
+    if not conf or conf.get("error") or _host(conf.get("site", "")) != _host(project.domain) or not conf.get("queries"):
+        return False
+    b = conf.get("brand") or {}
+    project.settings = {**(project.settings or {}), "social": {
+        **((project.settings or {}).get("social") or {}),
+        "brand_offer": b.get("offer", ""), "relevant": b.get("relevant", ""), "looking_now": b.get("live_problem", ""),
+        "persona": b.get("persona", ""), "rules": b.get("rules", ""), "link_line": b.get("link_line", ""),
+        "queries": conf.get("queries") or [], "subreddits": conf.get("subreddits") or [],
+        "avoid_subreddits": conf.get("avoidSubreddits") or [], "reject_topics": conf.get("rejectTopics") or [],
+        "pages": [p["url"] if isinstance(p, dict) else p for p in conf.get("pages") or []],
+        "quora": bool(conf.get("quora")), "quora_queries": conf.get("quoraQueries") or [],
+        "link_every_nth": conf.get("linkEveryNth", 3), "max_drafts_per_scan": conf.get("maxDraftsPerScan", 5),
+        "max_age_hours": conf.get("maxAgeHours", 24)}}
+    return True
+
+
 def push(db: Session, project: Project) -> dict | None:
     acct = engine_account(db, project.id)
     return call(acct, "POST", "/api/config", engine_config(project)) if acct else None

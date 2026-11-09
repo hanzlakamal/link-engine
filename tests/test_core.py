@@ -734,3 +734,43 @@ def test_social_scan_route_exists():
         pid = [x for x in c.get("/api/projects").json() if x["domain"] == "ss-test.com"][0]["id"]
         r = c.post(f"/p/{pid}/social/scan", follow_redirects=False)
         assert r.status_code == 303  # no engine connected -> back to overview, no "Unknown job"
+
+
+def test_social_inbox_lists_items_and_credits_posted(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import social
+    from app.main import app
+    from app.models import ContentItem, PlatformAccount
+
+    calls = []
+
+    def fake_call(acct, method, path, payload=None):
+        calls.append((method, path, payload))
+        if path.startswith("/api/items?"):
+            return {"total": 1, "items": [{"id": "reddit_q1", "source": "reddit", "sub": "gifts", "title": "Gift for dad?",
+                                           "url": "https://reddit.com/r/gifts/q1", "draft": "Try a funny tee", "status": "pending",
+                                           "withLink": True, "why": "asks for gift"}]}
+        if path == "/api/stats":
+            return {"brand": "Inbox Co", "byStatus": {"pending": 1}, "approved": 0, "seen": 9}
+        return {"id": "reddit_q1", "status": "posted", "draft": "Try a funny tee"}
+
+    monkeypatch.setattr(social, "call", fake_call)
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        c.post("/projects", data={"name": "Inbox", "domain": "inbox-test.com"})
+        pid = [x for x in c.get("/api/projects").json() if x["domain"] == "inbox-test.com"][0]["id"]
+        assert "isn't connected" in c.get(f"/p/{pid}/social").text
+        with session_scope() as s:
+            s.add(PlatformAccount(project_id=pid, platform="social_engine", data={"site_url": "http://x.railway.internal:8080"}))
+        html = c.get(f"/p/{pid}/social").text
+        assert "Gift for dad?" in html and "Posted it" in html and "Inbox Co" in html
+        r = c.post(f"/p/{pid}/social/items/reddit_q1/posted", data={
+            "draft": "Try a funny tee", "title": "Gift for dad?", "thread_url": "https://reddit.com/r/gifts/q1",
+            "source": "reddit", "with_link": "1", "comment_url": "https://reddit.com/r/gifts/q1/c9"})
+        assert r.status_code == 200
+        assert ("POST", "/api/items/reddit_q1/posted", {"by": "admin@test.com", "draft": "Try a funny tee"}) in calls
+        with session_scope() as s:
+            it = s.scalar(select(ContentItem).where(ContentItem.project_id == pid, ContentItem.channel == "reddit"))
+            assert it.status == "published" and it.published_url.endswith("/c9") and it.published_by is not None
+        assert c.post(f"/p/{pid}/social/items/bad id/posted").status_code in (404, 422)

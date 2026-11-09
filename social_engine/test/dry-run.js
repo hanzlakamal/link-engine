@@ -1,4 +1,5 @@
 // Offline test: mocks Reddit, Claude and Telegram to check the pipeline logic.
+process.env.TELEGRAM_BOT_TOKEN = "x"; process.env.TELEGRAM_CHAT_ID = "1";
 process.env.DATA_DIR = require("path").join(__dirname, ".tmp"); require("fs").rmSync(process.env.DATA_DIR, { recursive: true, force: true });
 const reddit = require("../src/reddit"), claude = require("../src/claude"), tg = require("../src/telegram");
 const now = Date.now();

@@ -1,0 +1,56 @@
+{% extends "base.html" %}{% from "_pager.html" import pager as pg %}{% block body %}
+{% if not acct %}
+<div class="card"><h3>Social &amp; Community isn't connected for {{ p.name }}</h3>
+<p>Connect this brand's social engine under <a href="/p/{{ p.id }}/accounts">Accounts</a> &rarr; <b>social_engine</b>
+(URL <code>http://social-&lt;brand&gt;.railway.internal:8080</code> + its ENGINE_API_TOKEN). Then Reddit and Quora drafts appear here.</p></div>
+{% else %}
+<div class="row" style="margin-bottom:8px">
+<b>{{ stats.brand or p.name }}</b> <small>Reddit{{ ' + Quora' if stats.quora else '' }}{{ ' · Telegram alerts on' if stats.telegram else '' }} · {{ stats.approved or 0 }} answers posted · {{ stats.seen or 0 }} threads seen</small>
+<span style="flex:1"></span>
+<form method="post" action="/p/{{ p.id }}/social/scan" class="inline"><button class="primary" {{ 'disabled' if stats.scanning }}>{{ 'Scanning… refresh in a minute' if stats.scanning or request.query_params.get('scanning') else 'Scan now' }}</button></form>
+<a class="btn" href="/p/{{ p.id }}/settings#social">Edit targets</a></div>
+<p><small><b>How it works:</b> Scan finds fresh Reddit threads and Quora questions where people ask for what {{ p.name }} offers and Claude drafts a genuinely helpful answer.
+Open the thread, adjust the draft so it sounds like you, post it <b>yourself</b> (Reddit and Quora ban automated posting), then click <b>Posted it</b>. It's credited to you on the Team page.
+Links appear in about 1 of every {{ (p.settings or {}).get('social', {}).get('link_every_nth', 3) }} answers, always disclosed.</small></p>
+
+<nav class="tabs" style="margin-top:0">
+{% for s, l in [('pending','To answer'),('posted','Posted'),('skipped','Skipped'),('all','All')] %}<a href="?status={{ s }}{{ '&source=' ~ source if source }}" class="{{ 'on' if status==s }}">{{ l }}{% if stats.byStatus and stats.byStatus.get(s) %} <span class="chip">{{ stats.byStatus.get(s) }}</span>{% endif %}</a>{% endfor %}
+<span style="flex:1"></span>
+{% for s, l in [('','All platforms'),('reddit','Reddit'),('quora','Quora')] %}<a href="?status={{ status }}{{ '&source=' ~ s if s }}" class="{{ 'on' if source==s }}">{{ l }}</a>{% endfor %}
+</nav>
+{% if error %}<div class="banner">Engine unreachable: {{ error }}</div>{% endif %}
+
+{% for it in items %}
+<div class="card" style="margin-bottom:12px">
+<form method="post" action="/p/{{ p.id }}/social/items/{{ it.id }}/edit">
+<input type="hidden" name="title" value="{{ it.title }}"><input type="hidden" name="thread_url" value="{{ it.url }}">
+<input type="hidden" name="source" value="{{ it.source }}"><input type="hidden" name="with_link" value="{{ '1' if it.withLink }}">
+<input type="hidden" name="back" value="/p/{{ p.id }}/social?{{ request.url.query }}">
+<div class="row"><span class="chip">{{ 'Quora' if it.source == 'quora' else 'r/' ~ it.sub }}</span>{% if it.category %}<span class="chip">{{ it.category }}</span>{% endif %}
+<span class="chip {{ 'win' if it.status=='posted' else '' }}">{{ it.status }}</span>
+{% if it.withLink %}<span class="chip action">with link</span>{% endif %}
+<span style="flex:1"></span><small>{{ (it.updated or it.found or '')[:16].replace('T', ' ') }}{% if it.by %} · {{ it.by }}{% endif %}</small></div>
+<p><a href="{{ it.url }}" target="_blank" rel="noopener"><b>{{ it.title }}</b></a></p>
+{% if it.body %}<details><summary><small>Their post</small></summary><p><small>{{ it.body }}</small></p></details>{% endif %}
+{% if it.why %}<p><small>Why: {{ it.why }}</small></p>{% endif %}
+<p><textarea name="draft" rows="7">{{ it.draft }}</textarea></p>
+<div class="row">
+{% if it.status == 'pending' %}
+<a class="btn primary" href="{{ it.url }}" target="_blank" rel="noopener" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('form').draft.value)">Copy &amp; open thread</a>
+<input name="comment_url" placeholder="Your comment's link (optional)" style="flex:1">
+<button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/posted" class="primary">Posted it</button>
+<button>Save edit</button>
+<button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/redraft">Redraft</button>
+<button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/toggle">{{ 'Remove link' if it.withLink else 'Add link' }}</button>
+<button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/skip">Skip</button>
+{% else %}
+<a class="btn" href="{{ it.url }}" target="_blank" rel="noopener">Open thread</a>
+<button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/restore">Back to To answer</button>
+{% endif %}
+</div></form></div>
+{% else %}
+<div class="card muted">{% if status == 'pending' %}Nothing to answer right now. Click <b>Scan now</b>; drafts appear here in a minute or two.{% else %}Nothing here.{% endif %}</div>
+{% endfor %}
+{{ pg(pager, qs) }}
+{% endif %}
+{% endblock %}

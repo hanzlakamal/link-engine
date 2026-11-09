@@ -1,8 +1,9 @@
 const cfg = require("./config"), engine = require("./engine"), tg = require("./telegram"), pinterest = require("./pinterest");
-const need = ["ANTHROPIC_API_KEY", "TELEGRAM_BOT_TOKEN"].filter((k) => !process.env[k]);
-if (need.length) { console.error("Missing env vars:", need.join(", ")); process.exit(1); }
+// Telegram is optional: without it the engine still scans for the dashboard's Social inbox.
+if (!process.env.ANTHROPIC_API_KEY) { console.error("Missing env var: ANTHROPIC_API_KEY"); process.exit(1); }
 
 async function pollLoop() {
+  if (!process.env.TELEGRAM_BOT_TOKEN) { console.log("No TELEGRAM_BOT_TOKEN: Telegram off, dashboard inbox only."); return; }
   let offset = 0;
   for (;;) {
     try {
@@ -17,7 +18,6 @@ async function pollLoop() {
   }
 }
 async function scanLoop() {
-  if (!process.env.TELEGRAM_CHAT_ID) { console.log("Set TELEGRAM_CHAT_ID (send /start to the bot to get it). Scanning paused."); return; }
   for (;;) { try { await engine.scan(); } catch (e) { console.warn("scan", e.message); } await new Promise((r) => setTimeout(r, cfg.scanEveryMinutes * 60000)); }
 }
 async function pinLoop() { for (;;) { try { await pinterest.postDue(); } catch (e) { console.warn("pins", e.message); } await new Promise((r) => setTimeout(r, 60 * 60000)); } }

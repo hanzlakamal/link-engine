@@ -6,7 +6,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/dry-run.js && node test/quora.js"
+    "test": "node test/dry-run.js && node test/quora.js && node test/api.js"
   },
   "engines": {
     "node": ">=20"

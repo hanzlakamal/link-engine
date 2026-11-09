@@ -602,6 +602,60 @@ def social_engine_call(acct, method: str, path: str, payload: dict | None = None
     return social.call(acct, method, path, payload)
 
 
+@app.get("/p/{pid}/social", response_class=HTMLResponse)
+def social_page(pid: int, request: Request, status: str = "pending", source: str = "", page: int = 1,
+                db: Session = Depends(get_db)):
+    from app import social
+
+    p = _project(db, pid)
+    acct = _social_engine(db, pid)
+    data, stats = {"items": [], "total": 0}, None
+    if acct:
+        from urllib.parse import urlencode
+
+        page = max(1, page)
+        qs = urlencode({"status": status, "source": source, "limit": PER_PAGE, "offset": (page - 1) * PER_PAGE})
+        data = social.call(acct, "GET", f"/api/items?{qs}")
+        stats = social.call(acct, "GET", "/api/stats")
+    pager = {"page": page, "pages": max(1, -(-int(data.get("total") or 0) // PER_PAGE)), "total": data.get("total") or 0}
+    return templates.TemplateResponse(request, "social.html", {
+        "p": p, "tab": "social", "acct": acct, "items": data.get("items") or [], "error": data.get("error"),
+        "stats": stats or {}, "status": status, "source": source, "pager": pager,
+        "qs": f"&status={status}" + (f"&source={source}" if source else "")})
+
+
+@app.post("/p/{pid}/social/items/{iid}/{action}")
+def social_item(pid: int, iid: str, action: str, request: Request, draft: str = Form(""), comment_url: str = Form(""),
+                title: str = Form(""), thread_url: str = Form(""), source: str = Form(""), with_link: str = Form(""),
+                back: str = Form(""), db: Session = Depends(get_db)):
+    """Inbox actions go to the engine; 'posted' is also recorded here so it's credited to the person."""
+    from app import social
+
+    if action not in ("posted", "skip", "redraft", "toggle", "restore", "edit") or not re.fullmatch(r"[A-Za-z0-9_\-]{1,120}", iid):
+        raise HTTPException(404)
+    acct = _social_engine(db, pid)
+    if not acct:
+        raise HTTPException(400, "Social engine not connected (Accounts tab)")
+    u = me(request)
+    res = social.call(acct, "POST", f"/api/items/{iid}/{action}", {"by": u.email, "draft": draft})
+    if res.get("error"):
+        raise HTTPException(400, f"Engine: {res['error']}")
+    if action == "posted":
+        comment_url = comment_url.strip()
+        live = comment_url if comment_url.startswith(("https://", "http://")) else thread_url
+        db.add(ContentItem(project_id=pid, channel=source or "reddit", content_type="answer", title=title[:500],
+                           body=draft or res.get("draft", ""), status="published", published_url=live, published_by=u.id,
+                           approved_by=u.id, created_by=u.id, target_url=thread_url,
+                           data={"social_id": iid, "thread": thread_url, "with_link": bool(with_link)}))
+        if comment_url.startswith(("https://", "http://")) and with_link:
+            _add_earned_link(db, pid, comment_url, "", "social", u.id)  # track the answer that carries our link
+        db.add(Event(project_id=pid, user_id=u.id, level="win",
+                     message=f"{u.name or u.email} posted a {source or 'reddit'} answer: {title[:80]}"))
+        db.commit()
+    dest = back if back.startswith(f"/p/{pid}/social") else f"/p/{pid}/social"
+    return RedirectResponse(dest, status_code=303)
+
+
 @app.post("/p/{pid}/social/scan")
 def social_scan(pid: int, request: Request, db: Session = Depends(get_db)):
     from app import social
@@ -610,6 +664,10 @@ def social_scan(pid: int, request: Request, db: Session = Depends(get_db)):
     if acct:
         social.push(db, _project(db, pid))  # engine always scans with the dashboard's current settings
         res = social_engine_call(acct, "POST", "/api/scan")
+        if "/social" in (request.headers.get("referer") or ""):
+            audit(db, me(request).id, f"Social engine scan: {res}", pid)
+            db.commit()
+            return RedirectResponse(f"/p/{pid}/social?scanning=1", status_code=303)
         audit(db, me(request).id, f"Social engine scan: {res}", pid)
         db.commit()
     return _back(pid)
@@ -639,7 +697,10 @@ def add_account(pid: int, request: Request, platform: str = Form(...), persona: 
         from app import social
 
         p = _project(db, pid)
-        if not ((p.settings or {}).get("social") or {}).get("queries"):
+        if social.import_from_engine(db, p):  # engine already tuned for this site: keep its settings
+            db.add(Event(project_id=pid, level="info", message="Social settings imported from the connected engine."))
+            db.commit()
+        elif not ((p.settings or {}).get("social") or {}).get("queries"):
             enqueue(db, "suggest_social", pid)  # Claude fills targets, then pushes them
             db.commit()
         else:
@@ -787,7 +848,7 @@ def links_page(pid: int, request: Request, status: str = "", kind: str = "", sea
     return templates.TemplateResponse(request, "links.html", {
         "p": p, "tab": "links", "groups": shown, "pager": pager, "summary": summary, "qs": ("&" + qs) if qs else "",
         "f": {"status": status, "kind": kind, "search": search, "person": person},
-        "kinds": sorted({e.kind for e in rows if e.kind} | {"self_publish", "outreach", "pr", "other"}),
+        "kinds": sorted({e.kind for e in rows if e.kind} | {"self_publish", "outreach", "pr", "social", "other"}),
         "team": _team(db, pid), "names": {u.id: u.name or u.email for u in db.scalars(select(User))},
         "is_manager": authz.at_least(me(request), "manager"), "rows": _link_rows})
 
