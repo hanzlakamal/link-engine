@@ -43,6 +43,7 @@ Links appear in about 1 of every {{ (p.settings or {}).get('social', {}).get('li
 <button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/redraft">Redraft</button>
 <button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/toggle">{{ 'Remove link' if it.withLink else 'Add link' }}</button>
 <button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/skip">Skip</button>
+{% if it.source == 'reddit' %}<button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/banned" name="subreddit" value="{{ it.sub }}" title="You were banned/removed in r/{{ it.sub }}: never draft there again" onclick="return confirm('Block r/{{ it.sub }} for good?')">Banned here</button>{% endif %}
 {% else %}
 <a class="btn" href="{{ it.url }}" target="_blank" rel="noopener">Open thread</a>
 <button formaction="/p/{{ p.id }}/social/items/{{ it.id }}/restore">Back to To answer</button>

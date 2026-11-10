@@ -51,7 +51,7 @@ def engine_config(project: Project) -> dict:
         "site": f"https://{project.domain}" if not project.domain.startswith("http") else project.domain,
         "brand": brand,
         "queries": sc.get("queries") or [], "subreddits": sc.get("subreddits") or [],
-        "avoidSubreddits": sc.get("avoid_subreddits") or [], "rejectTopics": sc.get("reject_topics") or [],
+        "avoidSubreddits": sc.get("avoid_subreddits") or [], "blockedSubreddits": sc.get("blocked_subreddits") or [], "rejectTopics": sc.get("reject_topics") or [],
         "pages": [{"url": p if p.startswith("/") else "/" + p, "about": ""} for p in (sc.get("pages") or [])],
         "quora": bool(sc.get("quora", True)), "quoraQueries": sc.get("quora_queries") or [],
         "linkEveryNth": int(sc.get("link_every_nth") or 3), "maxDraftsPerScan": int(sc.get("max_drafts_per_scan") or 5),

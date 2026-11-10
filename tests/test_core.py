@@ -859,3 +859,28 @@ def test_ai_teammate_approves_clean_email_when_sender_ready(monkeypatch):
         out = agent.run(s, p)
         assert out["approved"] == 1 and it.status == "approved" and it.approved_by is not None
         assert s.scalar(select(Job).where(Job.type == "publish_content", Job.project_id == p.id)) is not None
+
+
+def test_banned_here_blocks_subreddit(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import social
+    from app.main import app
+    from app.models import PlatformAccount
+
+    sent = []
+    monkeypatch.setattr(social, "call", lambda acct, m, path, payload=None: sent.append((m, path, payload)) or {})
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        c.post("/projects", data={"name": "Ban", "domain": "ban-test.com"})
+        pid = [x for x in c.get("/api/projects").json() if x["domain"] == "ban-test.com"][0]["id"]
+        with session_scope() as s:
+            s.add(PlatformAccount(project_id=pid, platform="social_engine", data={"site_url": "http://b.railway.internal:8080"}))
+            s.get(Project, pid).settings = {"social": {"subreddits": ["GiftIdeas", "gifts"]}}
+        c.post(f"/p/{pid}/social/items/reddit_x/banned", data={"source": "reddit", "subreddit": "GiftIdeas"})
+        with session_scope() as s:
+            sc = s.get(Project, pid).settings["social"]
+            assert sc["blocked_subreddits"] == ["GiftIdeas"] and sc["subreddits"] == ["gifts"]
+        pushed = [p for m, path, p in sent if path == "/api/config"][0]
+        assert pushed["blockedSubreddits"] == ["GiftIdeas"]
+        assert ("POST", "/api/items/reddit_x/skip", {"by": "admin@test.com"}) in sent

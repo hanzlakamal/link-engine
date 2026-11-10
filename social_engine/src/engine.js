@@ -14,7 +14,10 @@ async function collect() {
   return [...out.values()];
 }
 
+const blocked = (sub) => (cfg.blockedSubreddits || []).some((b) => b.toLowerCase() === String(sub || "").toLowerCase());
+
 function prefilter(t) {
+  if (t.source === "reddit" && blocked(t.sub)) return false;  // banned / never post here
   if (store.seen(t.id)) return false;
   store.markSeen(t.id);
   if (t.locked || t.over18) return false;
@@ -25,9 +28,10 @@ function prefilter(t) {
 }
 
 async function handle(t) {
+  if (t.source === "reddit" && !t.rules) t.rules = await reddit.rules(t.sub).catch(() => "");
   const s = await claude.score(t);
   if (!s.relevant || !s.live_problem || !s.us_likely || s.reject_reason) return null;
-  const linkAllowed = t.source === "quora" || !cfg.avoidSubreddits.includes(t.sub);
+  const linkAllowed = s.link_ok !== false && (t.source === "quora" || !cfg.avoidSubreddits.includes(t.sub));
   const withLink = linkAllowed && !!s.page && store.db.approvedCount % cfg.linkEveryNth === 0;
   const draft = await claude.draft(t, s.page, withLink);
   return { ...t, category: s.category, page: s.page, why: s.why, withLink, draft, status: "pending", found: new Date().toISOString() };

@@ -81,7 +81,7 @@ const cfg = { ...base, brand: { ...GENERIC.brand, ...(base.brand || {}) } };
 
 // keys the dashboard may set (anything else is ignored)
 const PUSHABLE = ["site", "brand", "queries", "subreddits", "avoidSubreddits", "pages", "rejectTopics", "quora",
-  "quoraQueries", "linkEveryNth", "maxDraftsPerScan", "maxAgeHours", "maxComments", "pinsUrl", "dataforseo"];
+  "quoraQueries", "blockedSubreddits", "linkEveryNth", "maxDraftsPerScan", "maxAgeHours", "maxComments", "pinsUrl", "dataforseo"];
 
 function applyOverrides(o) {
   for (const k of PUSHABLE) {

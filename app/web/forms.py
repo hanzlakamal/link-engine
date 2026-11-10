@@ -58,6 +58,7 @@ HELP = {
     "social.queries": "Reddit search phrases (newest posts across Reddit).",
     "social.subreddits": "Subreddits to watch for new posts (no r/ prefix).",
     "social.avoid_subreddits": "Read these but never include a link there (self-promo banned).",
+    "social.blocked_subreddits": "Never draft for these (you were banned/removed, or they forbid brands). The Social tab's 'Banned here' button adds to this.",
     "social.reject_topics": "Never draft for posts mentioning these.",
     "social.pages": "Site paths answers may link to, e.g. /, /product-category/halloween/.",
     "social.quora": "Also find Quora questions (uses DataForSEO, about $0.002 per phrase per scan).",

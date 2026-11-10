@@ -8,7 +8,7 @@ const posts = [
   { id: "reddit_b", source: "reddit", sub: "homeowners", title: "Bed bugs in my apartment", body: "", url: "u2", created: now - 36e5, comments: 2 },
   { id: "reddit_c", source: "reddit", sub: "DIY", title: "Old post about mice", body: "", url: "u3", created: now - 72 * 36e5, comments: 1 },
 ];
-reddit.search = async () => posts; reddit.newIn = async () => [];
+reddit.search = async () => posts; reddit.newIn = async () => []; reddit.rules = async () => "";
 claude.score = async (t) => ({ relevant: true, live_problem: true, us_likely: true, category: "wildlife", reject_reason: null, page: "/guides/raccoon-poop/", why: "raccoon latrine likely" });
 claude.draft = async (t, p, l) => `draft for ${t.id} link=${l}`;
 const sent = []; tg.sendItem = async (it) => sent.push(it);

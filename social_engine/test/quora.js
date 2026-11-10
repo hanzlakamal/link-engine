@@ -8,3 +8,8 @@ assert.equal(questionUrl("https://example.com/x"), null);
 const engine = require("../src/engine");
 assert.equal(engine.prefilter({ id: "quora_x", source: "quora", title: "Gift for dad?", body: "", created: Date.now() - 999 * 36e5, comments: 0 }), true);
 console.log("PASS quora");
+// blocked subreddits are dropped before any AI cost
+const cfg = require("../src/config");
+cfg.blockedSubreddits = ["GiftIdeas"];
+assert.equal(engine.prefilter({ id: "reddit_b1", source: "reddit", sub: "giftideas", title: "x", body: "", created: Date.now(), comments: 0 }), false);
+console.log("PASS blocked");

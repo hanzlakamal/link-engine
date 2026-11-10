@@ -41,7 +41,24 @@ async function rss(path) {
   return parseAtom(await r.text());
 }
 
+// Subreddit rules (public JSON), so drafts respect each community. Cached for 7 days in the store.
+async function rules(sub) {
+  const store = require("./store");
+  store.db.rules ||= {};
+  const hit = store.db.rules[sub.toLowerCase()];
+  if (hit && Date.now() - hit.at < 7 * 864e5) return hit.text;
+  let text = "";
+  try {
+    await sleep(1500);
+    const r = await fetch(`https://www.reddit.com/r/${encodeURIComponent(sub)}/about/rules.json`, { headers: { "User-Agent": UA } });
+    if (r.ok) text = ((await r.json()).rules || []).map((x) => `${x.short_name}: ${(x.description || "").replace(/\s+/g, " ").slice(0, 300)}`).join("\n").slice(0, 3000);
+  } catch {}
+  store.db.rules[sub.toLowerCase()] = { text, at: Date.now() }; store.save();
+  return text;
+}
+
 module.exports = {
+  rules,
   mode: () => (useApi() ? "api" : "rss"),
   search: (q) => (useApi() ? apiGet(`/search?q=${encodeURIComponent(q)}&sort=new&t=day&limit=25&type=link`) : rss(`/search.rss?q=${encodeURIComponent(q)}&sort=new&t=day`)),
   newIn: (sub) => (useApi() ? apiGet(`/r/${sub}/new?limit=25`) : rss(`/r/${sub}/new.rss`)),

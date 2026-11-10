@@ -639,10 +639,27 @@ def social_page(pid: int, request: Request, status: str = "pending", source: str
 @app.post("/p/{pid}/social/items/{iid}/{action}")
 def social_item(pid: int, iid: str, action: str, request: Request, draft: str = Form(""), comment_url: str = Form(""),
                 title: str = Form(""), thread_url: str = Form(""), source: str = Form(""), with_link: str = Form(""),
-                back: str = Form(""), db: Session = Depends(get_db)):
+                back: str = Form(""), subreddit: str = Form(""), db: Session = Depends(get_db)):
     """Inbox actions go to the engine; 'posted' is also recorded here so it's credited to the person."""
     from app import social
 
+    if action == "banned":  # block this subreddit for good and skip the draft
+        p = _project(db, pid)
+        sc = dict((p.settings or {}).get("social") or {})
+        sub_name = re.sub(r"[^A-Za-z0-9_]", "", subreddit)[:50]
+        if sub_name and sub_name.lower() not in {b.lower() for b in sc.get("blocked_subreddits", [])}:
+            sc["blocked_subreddits"] = [*sc.get("blocked_subreddits", []), sub_name]
+            sc["subreddits"] = [x for x in sc.get("subreddits", []) if x.lower() != sub_name.lower()]
+            p.settings = {**(p.settings or {}), "social": sc}
+            audit(db, me(request).id, f"Blocked r/{sub_name} for social answers", pid)
+            db.commit()
+        acct = _social_engine(db, pid)
+        if acct:
+            from app import social
+
+            social.push(db, p)
+            social.call(acct, "POST", f"/api/items/{iid}/skip", {"by": me(request).email})
+        return RedirectResponse(back if back.startswith(f"/p/{pid}/social") else f"/p/{pid}/social", status_code=303)
     if action not in ("posted", "skip", "redraft", "toggle", "restore", "edit") or not re.fullmatch(r"[A-Za-z0-9_\-]{1,120}", iid):
         raise HTTPException(404)
     acct = _social_engine(db, pid)
