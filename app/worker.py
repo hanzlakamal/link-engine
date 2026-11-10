@@ -117,6 +117,15 @@ def _site_pages(domain: str, limit: int = 60) -> list[str]:
     return paths[:limit]
 
 
+@job("ai_teammate")
+def _ai_teammate(s, project, payload):
+    from app import agent
+
+    j = s.scalar(select(Job).where(Job.type == "ai_teammate", Job.project_id == project.id, Job.status == "running")
+                 .order_by(Job.id.desc()).limit(1))
+    return agent.run(s, project, j.id if j else None, payload.get("user_id"))
+
+
 @job("build_pins")
 def _build_pins(s, project, payload):
     from app import pinterest

@@ -51,6 +51,27 @@ def _schema(fields: dict) -> dict:
             "required": list(fields), "additionalProperties": False}
 
 
+# Spend metering: while an AI-teammate run is active, every Claude call adds its cost (USD) to METER.
+import contextvars
+
+METER: contextvars.ContextVar = contextvars.ContextVar("claude_meter", default=None)
+PRICES = {"claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5": (2.0, 10.0),
+          "claude-opus-5": (5.0, 25.0)}  # USD per million input / output tokens
+
+
+def cost(model: str, usage) -> float:
+    pin, pout = PRICES.get(model, (5.0, 25.0))  # unknown model: assume the expensive tier
+    inp = (getattr(usage, "input_tokens", 0) or 0) + (getattr(usage, "cache_creation_input_tokens", 0) or 0) * 1.25
+    inp += (getattr(usage, "cache_read_input_tokens", 0) or 0) * 0.1
+    return (inp * pin + (getattr(usage, "output_tokens", 0) or 0) * pout) / 1_000_000
+
+
+def _meter(model: str, usage) -> None:
+    m = METER.get()
+    if m is not None:
+        m.append(cost(model, usage))
+
+
 def complete_json(prompt: str, fields: dict, *, system: str = "", premium: bool = False, max_tokens: int = 16000,
                   effort: str = "") -> dict:
     """Structured outputs (output_config.format): the API guarantees valid JSON matching the schema.
@@ -66,6 +87,7 @@ def complete_json(prompt: str, fields: dict, *, system: str = "", premium: bool 
         output_config={"effort": effort, "format": {"type": "json_schema", "schema": _schema(fields)}},
         messages=[{"role": "user", "content": prompt}],
     )
+    _meter(s.model_premium if premium else s.model_default, msg.usage)
     if msg.stop_reason in ("refusal", "max_tokens"):
         raise ValueError(f"AI stopped early ({msg.stop_reason})")
     return json.loads(next(b.text for b in msg.content if b.type == "text"))

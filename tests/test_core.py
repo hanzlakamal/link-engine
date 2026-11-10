@@ -774,3 +774,88 @@ def test_social_inbox_lists_items_and_credits_posted(monkeypatch):
             it = s.scalar(select(ContentItem).where(ContentItem.project_id == pid, ContentItem.channel == "reddit"))
             assert it.status == "published" and it.published_url.endswith("/c9") and it.published_by is not None
         assert c.post(f"/p/{pid}/social/items/bad id/posted").status_code in (404, 422)
+
+
+def test_ai_teammate_guardrails_and_briefing(monkeypatch):
+    from types import SimpleNamespace as N
+
+    from app import agent, ai
+    from app.models import ApiUsage, Contact, ContentItem, Event
+
+    with session_scope() as s:
+        p = Project(name="Agent Co", domain="agent-test.com", type="ecommerce",
+                    settings={"sender": {"name": "", "email": "hi@mail.agent-test.com", "postal_address": "1 Main St"}})
+        s.add(p)
+        s.flush()
+        c = Contact(project_id=p.id, email="ed@mag.com", name="Ed", unsub_token="t" * 24)
+        s.add(c)
+        s.flush()
+        bad = ContentItem(project_id=p.id, channel="outreach_email", title="Hi [Name]", body="Hello [Name], ...", contact_id=c.id)
+        good = ContentItem(project_id=p.id, channel="outreach_email", title="Gift guide idea", body="Hi Ed, loved your guide.", contact_id=c.id)
+        reddit = ContentItem(project_id=p.id, channel="reddit", title="post", body="text")
+        s.add_all([bad, good, reddit])
+        s.flush()
+        ids = (bad.id, good.id, reddit.id)
+        script = [
+            [("get_status", {})],
+            [("approve_draft", {"item_id": ids[0]}), ("approve_draft", {"item_id": ids[1]}), ("approve_draft", {"item_id": ids[2]})],
+            [("finish", {"briefing": "Reviewed 3 drafts. Fill in the sender name.", "needs_human": ["Set Settings > Sender name"]})],
+        ]
+        seen_results = []
+
+        class FakeMessages:
+            def create(self, **kw):
+                if kw["messages"][-1]["role"] == "user" and isinstance(kw["messages"][-1]["content"], list):
+                    seen_results.append(kw["messages"][-1]["content"])
+                calls = script.pop(0)
+                blocks = [N(type="tool_use", id=f"t{i}", name=n, input=a) for i, (n, a) in enumerate(calls)]
+                return N(content=blocks, stop_reason="tool_use", usage=N(input_tokens=1000, output_tokens=200))
+
+        monkeypatch.setattr(ai, "_client", lambda: N(messages=FakeMessages()))
+        out = agent.run(s, p)
+        results = [r["content"] for r in seen_results[1]]
+        assert "placeholders" in results[0]          # [Name] refused
+        assert "sender not ready" in results[1]       # no real sender name -> no sending
+        assert "needs human approval" in results[2]   # reddit is never auto-approved
+        assert {s.get(ContentItem, i).status for i in ids} == {"pending_approval"}
+        brief = s.scalar(select(Event).where(Event.project_id == p.id, Event.level == "brief"))
+        assert "sender name" in brief.message and brief.data["needs_human"] == ["Set Settings > Sender name"]
+        assert out["spend_usd"] > 0 and agent.spent_today(s, p.id) == out["spend_usd"]
+        # budget cap: a second run today with the cap already used stops before calling Claude
+        s.add(ApiUsage(project_id=p.id, provider="claude_agent", units=5.0))
+        s.flush()
+        assert agent.run(s, p) == {"stopped": "budget"}
+        assert agent.placeholders("Hi {first_name}, see <your name>") and not agent.placeholders("Hi Ed, thanks!")
+
+
+def test_ai_teammate_approves_clean_email_when_sender_ready(monkeypatch):
+    from types import SimpleNamespace as N
+
+    from app import agent, ai
+    from app.config import get_settings
+    from app.models import Contact, ContentItem, Job
+
+    monkeypatch.setattr(get_settings(), "brevo_api_key", "x", raising=False)
+    with session_scope() as s:
+        p = Project(name="Agent Two", domain="agent2-test.com", type="ecommerce",
+                    settings={"sender": {"name": "Zayn Kye", "email": "hi@mail.agent2-test.com", "postal_address": "1 Main St"}})
+        s.add(p)
+        s.flush()
+        c = Contact(project_id=p.id, email="ed@mag2.com", name="Ed", unsub_token="u" * 24)
+        s.add(c)
+        s.flush()
+        it = ContentItem(project_id=p.id, channel="outreach_email", title="Gift guide idea", body="Hi Ed, loved your guide.", contact_id=c.id)
+        s.add(it)
+        s.flush()
+        script = [[("approve_draft", {"item_id": it.id})], [("finish", {"briefing": "Approved 1 pitch."})]]
+
+        class FakeMessages:
+            def create(self, **kw):
+                calls = script.pop(0)
+                return N(content=[N(type="tool_use", id=f"t{i}", name=n, input=a) for i, (n, a) in enumerate(calls)],
+                         stop_reason="tool_use", usage=N(input_tokens=10, output_tokens=10))
+
+        monkeypatch.setattr(ai, "_client", lambda: N(messages=FakeMessages()))
+        out = agent.run(s, p)
+        assert out["approved"] == 1 and it.status == "approved" and it.approved_by is not None
+        assert s.scalar(select(Job).where(Job.type == "publish_content", Job.project_id == p.id)) is not None

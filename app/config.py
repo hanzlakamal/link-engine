@@ -158,6 +158,9 @@ DEFAULTS: dict = {
         "shopify_api_version": "2026-01",
     },
     "alerts": {"daily_digest": True, "digest_hour": 8, "chat": {"provider": "", "target": ""}},
+    # AI teammate: Claude works the project with the engine's own tools when someone clicks "Run AI teammate".
+    "agent": {"display_name": "AI teammate", "daily_budget_usd": 2.0, "auto_send": True,
+              "auto_channels": ["outreach_email", "own_blog", "pinterest"], "max_pitches_per_run": 5, "max_steps": 40},
     # Pinterest: pins built from product/collection pages; posted via API when an account is connected, else CSV.
     "pinterest": {"enabled": True, "boards": [], "pins_per_build": 20, "csv_pins_per_day": 3},
     # Social & Community engine (Reddit + Quora answers via Telegram). Empty = Claude fills it ("Suggest targets").

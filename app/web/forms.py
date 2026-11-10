@@ -17,6 +17,7 @@ SECTION_LABELS = {
     "outreach": "Outreach & PR", "limits": "Frequency limits (anti-spam)", "alerts": "Alerts",
     "social": "Social & Community (Reddit + Quora answers in Telegram)",
     "pinterest": "Pinterest (pins from your products)",
+    "agent": "AI teammate",
 }
 HELP = {
     "discovery.providers": "Order to try data sources, comma separated (ahrefs, dataforseo).",
@@ -62,6 +63,11 @@ HELP = {
     "social.quora": "Also find Quora questions (uses DataForSEO, about $0.002 per phrase per scan).",
     "social.quora_queries": "Quora search phrases (empty = first 6 Reddit phrases).",
     "social.link_every_nth": "Include a link in at most 1 of every N posted answers.",
+    "agent.display_name": "Name shown on the Team page and activity feed (internal only; emails are always signed by the real sender).",
+    "agent.daily_budget_usd": "Max Claude spend per day for this project's AI teammate runs. It stops and reports when reached.",
+    "agent.auto_send": "Let the teammate approve drafts itself on the channels below (sending still respects limits and business hours).",
+    "agent.auto_channels": "Channels it may approve: outreach_email, own_blog, pinterest. Everything else waits for a human.",
+    "agent.max_pitches_per_run": "Max new outreach pitches per run.",
     "pinterest.enabled": "Build pins automatically for this project (new projects get a first batch after the brand voice).",
     "pinterest.boards": "Board names. Empty = Claude proposes boards on the first build.",
     "pinterest.pins_per_build": "How many new pins each 'Build pins' makes (one per product/collection page not pinned yet).",

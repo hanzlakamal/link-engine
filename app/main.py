@@ -213,6 +213,12 @@ def create_project(name: str = Form(...), domain: str = Form(...), stage: str = 
     return _back(p.id)
 
 
+def agent_spent_today(db: Session, pid: int) -> float:
+    from app.agent import spent_today
+
+    return spent_today(db, pid)
+
+
 @app.get("/p/{pid}", response_class=HTMLResponse)
 def project_page(pid: int, request: Request, db: Session = Depends(get_db)):
     p = _project(db, pid)
@@ -233,6 +239,12 @@ def project_page(pid: int, request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "project.html", {
         "p": p, "f": funnel(db, pid), "top": top, "tasks": tasks, "events": events, "jobs": jobs,
         "by_kind": by_acq, "usage": usage, "playbooks": playbooks.items(), "social": social,
+        "brief": db.scalar(select(Event).where(Event.project_id == pid, Event.level == "brief")
+                           .order_by(Event.created_at.desc()).limit(1)),
+        "agent_job": db.scalar(select(Job).where(Job.type == "ai_teammate", Job.project_id == pid,
+                                                 Job.status.in_(("queued", "running", "stopping"))).limit(1)),
+        "agent_spent": agent_spent_today(db, pid),
+        "agent_cap": project_cfg(p).get("agent", {}).get("daily_budget_usd", 2),
         "strategies": [(n, c) for n, c in strategies.items()], "tab": "overview"})
 
 
@@ -654,6 +666,24 @@ def social_item(pid: int, iid: str, action: str, request: Request, draft: str = 
         db.commit()
     dest = back if back.startswith(f"/p/{pid}/social") else f"/p/{pid}/social"
     return RedirectResponse(dest, status_code=303)
+
+
+@app.post("/p/{pid}/agent/{action}")
+def agent_action(pid: int, action: str, request: Request, db: Session = Depends(get_db)):
+    _project(db, pid)
+    live = db.scalar(select(Job).where(Job.type == "ai_teammate", Job.project_id == pid,
+                                       Job.status.in_(("queued", "running", "stopping"))).limit(1))
+    u = me(request)
+    if action == "run" and not live:
+        enqueue(db, "ai_teammate", pid, user_id=u.id)
+        db.add(Event(project_id=pid, user_id=u.id, level="info", message=f"{u.name or u.email} started the AI teammate"))
+    elif action == "stop" and live:
+        live.status = "stopping" if live.status == "running" else "failed"
+        live.error = "stopped by " + (u.name or u.email)
+    elif action not in ("run", "stop"):
+        raise HTTPException(404)
+    db.commit()
+    return _back(pid)
 
 
 @app.post("/p/{pid}/social/scan")

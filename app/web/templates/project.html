@@ -7,6 +7,19 @@
 <div class="stat"><b>{{ f.live_links }}</b><span>Live links</span></div>
 </div>
 
+<div class="card" style="margin-bottom:16px"><div class="row"><h3 style="margin:0">AI teammate</h3>
+<small>{{ (p.settings or {}).get('agent', {}).get('display_name') or 'AI teammate' }} · today ${{ '%.2f'|format(agent_spent) }} of ${{ '%.2f'|format(agent_cap) }}</small>
+<span style="flex:1"></span>
+{% if agent_job %}<span class="chip action">{{ 'stopping…' if agent_job.status == 'stopping' else ('working… step ' ~ ((agent_job.result or {}).get('step', 0)) if agent_job.status == 'running' else 'queued') }}</span>
+<form method="post" action="/p/{{ p.id }}/agent/stop" class="inline"><button>Stop</button></form>
+{% else %}<form method="post" action="/p/{{ p.id }}/agent/run" class="inline"><button class="primary" title="Inbox, best opportunities, contacts, pitches, review & approve within your rules, pins, social scan, briefing">Run AI teammate</button></form>{% endif %}
+<a class="btn" href="/p/{{ p.id }}/settings#agent">Rules</a></div>
+{% if brief %}<p style="white-space:pre-wrap;margin:8px 0">{{ brief.message }}</p>
+{% if brief.data.needs_human %}<p><b>Needs a human:</b></p><ul>{% for n in brief.data.needs_human %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+<small>{{ brief.created_at.strftime('%b %d %H:%M') }} UTC · {{ brief.data.counts.pitches if brief.data.counts else 0 }} pitches · {{ brief.data.counts.approved if brief.data.counts else 0 }} approved · ${{ '%.2f'|format(brief.data.spend or 0) }}{% if brief.data.stop and brief.data.stop != 'done' %} · ended: {{ brief.data.stop }}{% endif %}</small>
+{% else %}<p class="muted">Click <b>Run AI teammate</b> when you start work: it checks replies, drafts and sends pitches within your limits, builds pins, scans Reddit/Quora and leaves a briefing here. Human-only work (sign-ups, Reddit/Quora posting) is assigned to the project's teammate.</p>{% endif %}
+</div>
+
 <div class="grid">
 <div class="card"><h3>Run</h3>
 <div class="row">
