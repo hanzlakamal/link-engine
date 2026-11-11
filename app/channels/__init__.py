@@ -23,6 +23,10 @@ COMPOSE_URLS = {
     "linkedin": "https://www.linkedin.com/article/new/",
     "substack": "https://substack.com/",
     "behance": "https://www.behance.net/portfolio/editor",
+    "video": "https://studio.youtube.com/",
+    "docs": "https://issuu.com/",
+    "pr": "https://www.prlog.org/",
+    "gbp": "https://business.google.com/",
 }
 
 
@@ -53,7 +57,10 @@ def get_channel(name: str) -> Channel:
         return ch
 
 
-for _n in [c for c in COMPOSE_URLS if c != "pinterest"] + ["instagram", "tiktok", "facebook", "youtube", "x", "profile", "directory", "forum"]:
+_API_NAMES = {"pinterest", "tumblr", "blogger"}  # registered as API channels (below / app/channels/publishers.py)
+for _n in [c for c in COMPOSE_URLS if c not in _API_NAMES] + ["instagram", "tiktok", "facebook", "youtube", "x", "profile",
+                                                             "directory", "forum", "launch_site",
+                                                             "forum_signature", "podcast"]:
     channels.register(_n)(type(f"{_n.title()}Channel", (Channel,), {}))
 
 
@@ -172,3 +179,6 @@ class OutreachEmail(Channel):
 
 
 channels.register("email")(type("LegacyEmailChannel", (OutreachEmail,), {}))  # drafts made before the upgrade
+
+
+from app.channels import publishers  # noqa: E402,F401  (registers API publishers)

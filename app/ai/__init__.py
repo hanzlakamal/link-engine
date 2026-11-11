@@ -55,7 +55,7 @@ def _schema(fields: dict) -> dict:
 import contextvars
 
 METER: contextvars.ContextVar = contextvars.ContextVar("claude_meter", default=None)
-PRICES = {"claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5": (2.0, 10.0),
+PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5": (2.0, 10.0),
           "claude-opus-5": (5.0, 25.0)}  # USD per million input / output tokens
 
 
@@ -73,21 +73,23 @@ def _meter(model: str, usage) -> None:
 
 
 def complete_json(prompt: str, fields: dict, *, system: str = "", premium: bool = False, max_tokens: int = 16000,
-                  effort: str = "") -> dict:
+                  effort: str = "", model: str = "") -> dict:
     """Structured outputs (output_config.format): the API guarantees valid JSON matching the schema.
 
     Current models think before answering and thinking counts toward max_tokens, so keep it generous
     and use lower effort for routine copywriting (premium tasks get medium)."""
     s = get_settings()
     effort = effort or ("medium" if premium else "low")
+    model = model or (s.model_premium if premium else s.model_default)
+    kwargs = {"output_config": {"effort": effort, "format": {"type": "json_schema", "schema": _schema(fields)}}}
     msg = _client().messages.create(
-        model=s.model_premium if premium else s.model_default,
+        model=model,
         max_tokens=max(max_tokens, 16000),
         system=system or "You are a senior brand marketer and copywriter.",
-        output_config={"effort": effort, "format": {"type": "json_schema", "schema": _schema(fields)}},
         messages=[{"role": "user", "content": prompt}],
+        **kwargs,
     )
-    _meter(s.model_premium if premium else s.model_default, msg.usage)
+    _meter(model, msg.usage)
     if msg.stop_reason in ("refusal", "max_tokens"):
         raise ValueError(f"AI stopped early ({msg.stop_reason})")
     return json.loads(next(b.text for b in msg.content if b.type == "text"))

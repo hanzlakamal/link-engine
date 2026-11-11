@@ -286,3 +286,25 @@ class ActionLog(Base):
     channel: Mapped[str] = mapped_column(String(50), index=True)
     account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class LearnedSite(TimestampMixin, Base):
+    """Cross-project launch-site knowledge (app/learning.py). Domain-level stats only: never content or accounts,
+    so what one client's project proves (live link, dofollow, niche fit) can seed the next similar project."""
+
+    __tablename__ = "learned_sites"
+    domain: Mapped[str] = mapped_column(String(255), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    url: Mapped[str] = mapped_column(Text, default="")
+    tier: Mapped[str] = mapped_column(String(30), default="niche")  # launch tier or niche
+    kind: Mapped[str] = mapped_column(String(30), default="")  # profile | forum | ugc_blog | directory | ...
+    types: Mapped[list] = mapped_column(JSON, default=list)  # project types it worked for
+    niche_terms: Mapped[list] = mapped_column(JSON, default=list)  # niche words of the projects that used it
+    projects: Mapped[int] = mapped_column(Integer, default=0)  # projects that had it as an opportunity
+    wins: Mapped[int] = mapped_column(Integer, default=0)  # projects that completed it / got a live link
+    rejects: Mapped[int] = mapped_column(Integer, default=0)
+    live_links: Mapped[int] = mapped_column(Integer, default=0)
+    dofollow_links: Mapped[int] = mapped_column(Integer, default=0)
+    avg_link_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score: Mapped[float] = mapped_column(Float, default=0, index=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)

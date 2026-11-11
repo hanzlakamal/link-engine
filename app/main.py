@@ -207,6 +207,9 @@ def create_project(name: str = Form(...), domain: str = Form(...), stage: str = 
         if c.strip():
             db.add(Competitor(project_id=p.id, domain=domain_of(c), source="manual", confirmed=True))
     db.add(Event(project_id=p.id, message=f"Project created: {p.name} ({p.domain})"))
+    from app import launchkit
+
+    launchkit.seed(db, p)  # Launch Kit checklist (preloaded + proven-on-other-projects sites); DB only, no API cost
     # one-time setup: brand voice -> social targets + first Pinterest pins (no recurring jobs)
     enqueue(db, "build_brand_voice", p.id)
     db.commit()
@@ -419,6 +422,9 @@ def opportunity_action(pid: int, oid: int, request: Request, action: str = Form(
         o.assigned_to = int(user_id) if user_id else None
     elif action == "find_contact":
         enqueue(db, "find_contacts", pid, opportunity_id=oid)
+    elif action == "draft" and o.kind == "parasite_kw":
+        o.status = "approved"
+        enqueue(db, "launch_write", pid, opportunity_id=oid, n=1)
     elif action == "draft":
         o.status = "approved"
         o.assigned_to = o.assigned_to or u.id
@@ -599,7 +605,9 @@ def republish(pid: int, cid: int, request: Request, db: Session = Depends(get_db
     return _back(pid, "queue")
 
 
-PLATFORM_CHOICES = list(HUB_PLATFORMS) + ["social_engine"] + sorted(set(COMPOSE_URLS) | {"imap_inbox"})
+from app.channels.publishers import API_CHANNELS  # noqa: E402
+
+PLATFORM_CHOICES = list(HUB_PLATFORMS) + ["social_engine"] + sorted(set(COMPOSE_URLS) | {"imap_inbox"} | API_CHANNELS)
 
 
 def _social_engine(db: Session, pid: int):
@@ -968,6 +976,135 @@ def link_action(pid: int, lid: int, action: str, request: Request, db: Session =
     return RedirectResponse(request.headers.get("referer") or f"/p/{pid}/links", status_code=303)
 
 
+# ---------------------------------------------------------------- Launch Kit (app/launchkit.py, app/launch_engine.py)
+LAUNCH_JOBS = {"autopilot": "launch_autopilot", "seed": "launch_seed", "keywords": "launch_keywords", "write": "launch_write",
+               "niche": "launch_niche", "indexer": "launch_indexer", "index_check": "launch_index_check",
+               "syndicate": "launch_syndicate"}
+TRICKS = [  # (no, name, effect, risk, how the engine does it)
+    (2, "Parasite SEO: long-tail articles on big platforms", "8", "4", "Automatic: keywords, SERP proof, articles, spaced publishing"),
+    (1, "Tiered linking", "7", "3", "Automatic: Bluesky/Mastodon/Telegraph pointers to each live article"),
+    (3, "Answering old threads that already rank", "7", "3", "Social tab (Reddit/Quora drafts) + Quora Spaces in the checklist"),
+    (4, "Brand entity signals (sameAs)", "7", "1", "Copy the JSON-LD below into your site (Rank Math > Schema)"),
+    (6, "Indexer page + crawl pings", "6", "2", "Automatic: Telegraph (+ GitHub Pages) page listing every backlink"),
+    (7, "Natural anchor mix + drip pacing", "protects", "0", "Automatic: anchor mix + spacing + daily limits"),
+    (9, "Syndication with canonical", "5", "1", "Automatic: own-blog posts to DEV/Hashnode/Tumblr/Write.as"),
+    (5, "Google stacking", "6", "3", "Drafts: Docs/Slides/My Maps/Sites pack"),
+    (8, "Video on 4 platforms", "5", "2", "Drafts: script + 4 unique descriptions"),
+    (10, "PDF lookbook / guide syndication", "5", "2", "Drafts: printable guide + upload descriptions"),
+    (11, "Mini-sites (3-5 pages)", "5", "4", "Automatic on GitHub Pages when connected, else drafts"),
+    (12, "Google Business Profile + My Maps", "4 (local 7)", "2", "Drafts: GBP posts + map pin"),
+    (13, "Embeddable badge / widget", "6", "4", "Snippet below (rel=nofollow, per Google's guidance)"),
+    (14, "Podcast from blog posts", "4", "3", "Drafts: episode scripts + show notes (voice/TTS is yours)"),
+    (15, "Niche forum signatures", "3", "3", "Drafts: signatures + bios; a person must participate first"),
+    (16, "Free press releases", "3", "2", "Drafts: press release for PRLog / OpenPR"),
+]
+
+
+@app.get("/p/{pid}/launch", response_class=HTMLResponse)
+def launch_page(pid: int, request: Request, show: str = "", db: Session = Depends(get_db)):
+    from app import launch_engine, launchkit, search
+    from app.models import LearnedSite
+
+    p = _project(db, pid)
+    opps = db.scalars(select(Opportunity).where(Opportunity.project_id == pid,
+                                                Opportunity.kind.in_(("launch_site", "niche_site", "parasite_kw")))
+                      .order_by(Opportunity.score.desc())).all()
+    sites = [o for o in opps if o.kind == "launch_site"]
+    by_tier: dict[str, list] = {}
+    for o in sites:
+        if show != "all" and o.status in ("done", "rejected"):
+            continue
+        by_tier.setdefault((o.data or {}).get("tier", "profile"), []).append(o)
+    kws = [o for o in opps if o.kind == "parasite_kw"]
+    niche = [o for o in opps if o.kind == "niche_site" and (show == "all" or o.status != "rejected")]
+    types = ("parasite_article", "syndication", "tier2_pointer")
+    arts = db.scalars(select(ContentItem).where(ContentItem.project_id == pid, ContentItem.content_type.in_(types))
+                      .order_by(ContentItem.id.desc()).limit(60)).all()
+    cnt = Counter(db.execute(select(ContentItem.content_type, ContentItem.status).where(
+        ContentItem.project_id == pid, ContentItem.content_type.in_(types))).all())
+    tg = db.scalar(select(PlatformAccount).where(PlatformAccount.project_id == pid, PlatformAccount.platform == "telegraph"))
+    running = db.scalars(select(Job.type).where(Job.project_id == pid, Job.type.like("launch_%"),
+                                                Job.status.in_(("queued", "running")))).all()
+    return templates.TemplateResponse(request, "launch.html", {
+        "p": p, "tab": "launch", "show": show, "by_tier": by_tier, "tiers": launchkit.TIER_LABELS, "kws": kws[:80],
+        "kw_new": sum(1 for k in kws if k.status in ("new", "approved")), "niche": niche, "arts": arts,
+        "sites_done": sum(1 for o in sites if o.status == "done"), "sites_total": len(sites),
+        "stats": {"written": sum(v for (t, _), v in cnt.items() if t == "parasite_article"),
+                  "live": cnt.get(("parasite_article", "published"), 0) + cnt.get(("syndication", "published"), 0),
+                  "queued": sum(v for (_, st), v in cnt.items() if st in ("approved", "scheduled")),
+                  "tier2": cnt.get(("tier2_pointer", "published"), 0)},
+        "conn": launch_engine.connected(db, p), "api": API_CHANNELS, "lc": project_cfg(p)["launch"], "tricks": TRICKS,
+        "assets": launch_engine.ASSETS, "same_as": json.dumps(launch_engine.same_as(db, p), indent=2),
+        "widget": launch_engine.widget_snippet(p), "indexer_url": ((tg.data or {}).get("indexer_url") if tg else ""),
+        "running": running, "search_ok": bool(search.provider_name(project_cfg(p))),
+        "learned": db.scalars(select(LearnedSite).order_by(LearnedSite.score.desc()).limit(15)).all(),
+        "learned_total": db.scalar(select(func.count()).select_from(LearnedSite)) or 0})
+
+
+@app.post("/p/{pid}/launch/run/{what}")
+def launch_run(pid: int, what: str, request: Request, db: Session = Depends(get_db)):
+    _project(db, pid)
+    if what == "learn":
+        from app import learning
+
+        n = learning.learn(db)
+        db.add(Event(project_id=pid, level="info", message=f"Learned-sites database rebuilt from all projects: {n} domains."))
+    elif what in LAUNCH_JOBS:
+        enqueue(db, LAUNCH_JOBS[what], pid)
+    else:
+        raise HTTPException(404)
+    db.commit()
+    return RedirectResponse(f"/p/{pid}/launch", status_code=303)
+
+
+@app.post("/p/{pid}/launch/asset/{asset}")
+def launch_asset(pid: int, asset: str, db: Session = Depends(get_db)):
+    from app.launch_engine import ASSETS
+
+    _project(db, pid)
+    if asset not in ASSETS:
+        raise HTTPException(404)
+    enqueue(db, "launch_asset", pid, asset=asset)
+    db.commit()
+    return RedirectResponse(f"/p/{pid}/launch", status_code=303)
+
+
+@app.post("/p/{pid}/launch/opp/{oid}")
+def launch_opp(pid: int, oid: int, request: Request, action: str = Form(...), profile_url: str = Form(""),
+               db: Session = Depends(get_db)):
+    o = db.get(Opportunity, oid)
+    if not o or o.project_id != pid:
+        raise HTTPException(404)
+    u = me(request)
+    p = _project(db, pid)
+    profile_url = profile_url.strip()
+    if action == "done":
+        o.status = "done"
+        if profile_url:
+            if not profile_url.startswith(("https://", "http://")):
+                raise HTTPException(400, "Profile URL must start with https://")
+            o.data = {**(o.data or {}), "profile_url": profile_url}
+            _add_earned_link(db, pid, profile_url, f"https://{p.domain}/", o.kind, u.id)
+    elif action == "write" and o.kind == "parasite_kw":
+        o.status = "approved"
+        enqueue(db, "launch_write", pid, opportunity_id=oid, n=1)
+    elif action == "pitch":
+        o.status = "approved"
+        enqueue(db, "draft_for_opportunity", pid, opportunity_id=oid, user_id=u.id)
+    elif action in ("rejected", "new", "snoozed"):
+        o.status = action
+        if action == "rejected" and o.kind == "niche_site":  # never suggest it again for this project
+            st = dict(p.settings or {})
+            lc = dict(st.get("launch", {}))
+            lc["niche_blocklist"] = sorted(set(lc.get("niche_blocklist", [])) | {o.domain})
+            st["launch"] = lc
+            p.settings = st
+    else:
+        raise HTTPException(400)
+    db.commit()
+    return RedirectResponse(f"/p/{pid}/launch#o{oid}", status_code=303)
+
+
 @app.get("/p/{pid}/tasks", response_class=HTMLResponse)
 def tasks_page(pid: int, request: Request, db: Session = Depends(get_db)):
     p = _project(db, pid)
@@ -1023,7 +1160,8 @@ async def save_settings(pid: int, request: Request, db: Session = Depends(get_db
 
 SECRET_LABELS = [("anthropic_api_key", "Anthropic API key"), ("ahrefs_api_key", "Ahrefs API key"),
                  ("dataforseo_login", "DataForSEO login"), ("dataforseo_password", "DataForSEO password"),
-                 ("brevo_api_key", "Brevo API key (outreach sending)"), ("hunter_api_key", "Hunter.io API key (optional contact finder)")]
+                 ("brevo_api_key", "Brevo API key (outreach sending)"), ("hunter_api_key", "Hunter.io API key (optional contact finder)"),
+                 ("brave_api_key", "Brave Search API key (optional, Launch Kit search)")]
 
 
 @app.get("/settings", response_class=HTMLResponse)

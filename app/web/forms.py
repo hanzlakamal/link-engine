@@ -18,6 +18,7 @@ SECTION_LABELS = {
     "social": "Social & Community (Reddit + Quora answers in Telegram)",
     "pinterest": "Pinterest (pins from your products)",
     "agent": "AI teammate",
+    "launch": "Launch Kit (parasite SEO, niche finder, tiered links)",
 }
 HELP = {
     "discovery.providers": "Order to try data sources, comma separated (ahrefs, dataforseo).",
@@ -74,7 +75,34 @@ HELP = {
     "pinterest.pins_per_build": "How many new pins each 'Build pins' makes (one per product/collection page not pinned yet).",
     "pinterest.csv_pins_per_day": "Spacing for the bulk-upload CSV (Pinterest schedules them).",
 }
-CHOICES = {"automation.default_mode": ["approve", "auto", "off"], "publishing.own_blog_status": ["publish", "draft"]}
+HELP.update({
+    "launch.keywords": "Niche keywords for this brand. Empty = Claude suggests them on the first run. They drive parasite keywords and the niche finder.",
+    "launch.model": "Claude model for bulk articles and site classification (Haiku 5.5 is about $0.001 per article). Empty = global default.",
+    "launch.parasite_platforms": "Where parasite articles go. API ones publish by themselves once connected (telegraph and writeas need no account); medium/linkedin wait for Copy & open.",
+    "launch.articles_per_run": "Articles written per autopilot run.",
+    "launch.keyword_candidates": "Long-tail keywords gathered per run from free Google autocomplete.",
+    "launch.serp_checks_per_run": "Paid SERP checks per run (~$0.002 each on DataForSEO). Keeps keywords where platform pages already rank. 0 = skip.",
+    "launch.min_volume": "Skip keywords below this monthly volume (when volumes are known).",
+    "launch.max_difficulty": "Skip keywords above this difficulty (0-100, when known).",
+    "launch.outbound_links": "Links to trusted outside sources per article (checked live; dead ones are unlinked).",
+    "launch.auto_publish": "Publish API-platform articles and tier-2 pointers without review. Off = everything waits in To approve.",
+    "launch.spacing_hours": "Hours between automatic publishes in one run (natural pacing).",
+    "launch.retry_next_day": "When a daily limit is hit, the autopilot item retries tomorrow by itself.",
+    "launch.tier2": "After a tier-1 article goes live, post pointers to it (tier 2) on the channels below.",
+    "launch.tier2_channels": "bluesky, mastodon (need accounts), telegraph (automatic).",
+    "launch.indexer_page": "Keep a Telegraph page (and GitHub Pages hub if connected) listing every new backlink so crawlers find them.",
+    "launch.index_check": "Reserved: index checks run only when you click 'Check indexing (paid)'.",
+    "launch.syndicate_own_blog": "Repost published own-blog articles to the channels below with a canonical link back.",
+    "launch.anchor_mix": "Target % of money-site links per anchor type; each new article uses the type furthest below target.",
+    "launch.search_provider": "Search API for SERP checks and the niche finder: dataforseo or brave (falls back to whichever is configured).",
+    "launch.niche_footprints": "Phrases combined with each keyword to find sites that accept outside content.",
+    "launch.niche_searches_per_run": "Searches per niche-finder run (cost: ~$0.002 each on DataForSEO).",
+    "launch.niche_pages_per_run": "Max new sites fetched and classified per run (~$0.001 per 15 sites with Haiku).",
+    "launch.niche_min_relevance": "Keep sites Claude rates at least this relevant (0-10).",
+    "launch.niche_blocklist": "Domains never suggested again (the ✕ button adds here).",
+})
+CHOICES = {"automation.default_mode": ["approve", "auto", "off"], "publishing.own_blog_status": ["publish", "draft"],
+           "launch.search_provider": ["dataforseo", "brave"]}
 
 
 def _label(path: str) -> str:

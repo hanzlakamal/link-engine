@@ -1,0 +1,105 @@
+{% extends "base.html" %}{% block body %}
+{% if running %}<div class="banner">Running / queued: {{ running|join(', ') }}. Refresh in a minute.</div>{% endif %}
+
+<div class="card" style="margin-bottom:16px">
+<div class="row"><h3 style="margin:0">Launch autopilot</h3><span style="flex:1"></span>
+<form method="post" action="/p/{{p.id}}/launch/run/autopilot" class="inline"><button class="primary">Run launch autopilot</button></form></div>
+<p><small>One click: adds the launch sites, finds long-tail keywords where platform pages already rank, writes
+{{ lc.articles_per_run }} parasite articles (each with one natural link to your best-matching page), publishes them on
+connected platforms {{ lc.spacing_hours }}h apart within daily limits ({{ 'automatically' if lc.auto_publish else 'after your approval' }}),
+then tier-2 pointers and the indexer page. Medium / LinkedIn drafts wait in <a href="/p/{{p.id}}/queue">Link publishing</a>.
+Change any of this in <a href="/p/{{p.id}}/settings">Settings &rarr; Launch Kit</a>.</small></p>
+{% if not search_ok %}<p class="banner"><small>No search provider yet: keywords come from free Google autocomplete only (not SERP-checked) and the niche finder is off.
+Add DataForSEO (or a Brave Search key) in Global settings.</small></p>{% endif %}
+<div class="stats">
+<div class="stat"><b>{{ kw_new }}</b><span>keywords ready</span></div>
+<div class="stat"><b>{{ stats.written }}</b><span>parasite articles written</span></div>
+<div class="stat"><b>{{ stats.queued }}</b><span>approved / publishing soon</span></div>
+<div class="stat"><b>{{ stats.live }}</b><span>tier-1 articles live</span></div>
+<div class="stat"><b>{{ stats.tier2 }}</b><span>tier-2 pointers live</span></div>
+<div class="stat"><b>{{ sites_done }}/{{ sites_total }}</b><span>launch sites done</span></div>
+</div>
+<div class="row" style="margin-top:10px">
+{% for k, l in [('keywords','Find keywords'),('write','Write articles'),('niche','Run niche finder'),('syndicate','Syndicate blog posts'),('indexer','Refresh indexer page'),('index_check','Check indexing (paid)'),('seed','Add launch sites'),('learn','Rebuild learned database')] %}
+<form method="post" action="/p/{{p.id}}/launch/run/{{k}}" class="inline"><button>{{ l }}</button></form>{% endfor %}
+{% if indexer_url %}<a href="{{ indexer_url }}" target="_blank" rel="noopener"><small>Indexer page &nearr;</small></a>{% endif %}
+</div>
+<p><small>Auto-publish platforms: {% for c in ['telegraph','writeas','blogger','wordpress_com','tumblr','hashnode','devto','bluesky','mastodon','github_pages'] %}
+<span class="chip {{ 'win' if c in conn or c in ('telegraph','writeas') else '' }}">{{ c }}{{ '' if c in conn or c in ('telegraph','writeas') else ' (connect)' }}</span> {% endfor %}
+&middot; <a href="/p/{{p.id}}/accounts">Accounts</a></small></p>
+</div>
+
+<div class="grid">
+<div class="card tbl"><h3>Parasite keywords <small>(best first)</small></h3>
+<table><tr><th>Keyword</th><th>Vol</th><th>KD</th><th>Proof</th><th></th></tr>
+{% for o in kws[:40] %}<tr id="o{{o.id}}"><td>{{ o.title }}{% if o.status != 'new' %} <span class="chip">{{ o.status }}</span>{% endif %}</td>
+<td>{{ o.data.volume or '' }}</td><td>{{ o.data.difficulty if o.data.difficulty is not none else '' }}</td>
+<td><small>{{ (o.data.weak_hosts or [])[:3]|join(', ') if o.data.verified else 'autocomplete' }}{% if o.data.best_channel %} &rarr; <b>{{ o.data.best_channel }}</b>{% endif %}</small></td>
+<td style="white-space:nowrap">{% if o.status in ('new','approved') %}
+<form method="post" action="/p/{{p.id}}/launch/opp/{{o.id}}" class="inline"><input type="hidden" name="action" value="write"><button title="Write the article now">Write</button></form>
+<form method="post" action="/p/{{p.id}}/launch/opp/{{o.id}}" class="inline"><input type="hidden" name="action" value="rejected"><button>✕</button></form>{% endif %}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No keywords yet. Click "Find keywords" or run the autopilot.</td></tr>{% endfor %}</table></div>
+
+<div class="card tbl"><h3>Articles &amp; pointers <small>(latest)</small></h3>
+<table><tr><th>Where</th><th>Title</th><th>Status</th></tr>
+{% for a in arts[:30] %}<tr><td><span class="chip">{{ a.channel }}</span><br><small>{{ {'parasite_article':'tier 1','syndication':'syndication','tier2_pointer':'tier 2'}[a.content_type] }}</small></td>
+<td>{% if a.published_url %}<a href="{{ a.published_url }}" target="_blank" rel="noopener">{{ a.title[:70] }}</a>{% else %}{{ a.title[:70] }}{% endif %}
+{% if a.data.keyword %}<br><small>{{ a.data.keyword }} · {{ a.data.anchor_type }} anchor</small>{% endif %}</td>
+<td><span class="chip {{ 'win' if a.status=='published' else ('warn' if a.status=='failed' else '') }}">{{ a.status }}</span>
+{% if a.data.indexed is defined %}<br><small>{{ 'indexed' if a.data.indexed else 'not indexed yet' }}</small>{% endif %}
+{% if a.data.error %}<br><small class="muted">{{ a.data.error[:80] }}</small>{% endif %}</td></tr>
+{% else %}<tr><td colspan="3" class="muted">Nothing written yet.</td></tr>{% endfor %}</table>
+<p><small>Edit, approve or post the assisted ones in <a href="/p/{{p.id}}/queue">Link publishing</a>.</small></p></div>
+</div>
+
+<h3 style="margin-top:20px">Launch sites checklist <small><a href="?show={{ '' if show=='all' else 'all' }}">{{ 'hide done' if show=='all' else 'show done / rejected' }}</a></small></h3>
+<p><small>Create the profile or post with the texts from <a href="/p/{{p.id}}/queue?view=signups">Profile kit</a>, paste the public URL and click Done:
+the link is tracked, scored, and added to your sameAs list and the indexer page. Sites marked done here also teach the learned database for future projects.</small></p>
+<div class="grid">
+{% for t in tiers if by_tier.get(t) %}<div class="card"><h3>{{ tiers[t] }} <small>({{ by_tier[t]|length }})</small></h3>
+{% for o in by_tier[t] %}<div id="o{{o.id}}" style="border-top:1px solid var(--line);padding:6px 0">
+<div class="row"><a href="{{ o.url }}" target="_blank" rel="noopener"><b>{{ o.platform }}</b></a>
+<small>{{ o.data.link }}{% if o.data.speed %} · {{ o.data.speed }}{% endif %}</small>
+{% if o.data.posting == 'api' %}<span class="chip {{ 'win' if o.data.channel in conn or o.data.channel in ('telegraph','writeas','pinterest') else 'action' }}">{{ 'auto' if o.data.channel in conn or o.data.channel in ('telegraph','writeas','pinterest') else 'auto after connect' }}</span>{% endif %}
+{% if o.status != 'new' %}<span class="chip">{{ o.status }}</span>{% endif %}</div>
+{% if o.reason %}<small class="muted">{{ o.reason }}</small>{% endif %}
+<form method="post" action="/p/{{p.id}}/launch/opp/{{o.id}}" class="row" style="margin-top:4px">
+<input name="profile_url" placeholder="Public URL (optional)" value="{{ o.data.profile_url or '' }}" style="flex:1;min-width:140px">
+<button name="action" value="done">Done</button><button name="action" value="rejected" title="Not for this brand">✕</button>
+{% if o.status in ('done','rejected') %}<button name="action" value="new">Undo</button>{% endif %}</form></div>{% endfor %}
+</div>{% else %}<p class="muted">No launch sites yet: click "Add launch sites".</p>{% endfor %}
+</div>
+
+<h3 style="margin-top:20px">Niche sites found for {{ p.name }} <small>({{ niche|length }})</small></h3>
+<div class="card tbl"><table><tr><th>Score</th><th>Site</th><th>Type</th><th>What to do</th><th></th></tr>
+{% for o in niche %}<tr id="o{{o.id}}"><td><b>{{ o.data.relevance }}</b>/10</td>
+<td><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.domain }}</a><br><small>{{ o.title[:60] }}</small></td>
+<td><span class="chip">{{ o.data.type }}</span><br><small>{{ o.data.link }}</small></td><td><small>{{ o.reason }}</small></td>
+<td style="white-space:nowrap"><form method="post" action="/p/{{p.id}}/launch/opp/{{o.id}}" class="row">
+<input name="profile_url" placeholder="Public URL" style="width:130px"><button name="action" value="done">Done</button>
+{% if o.data.type == 'guest_post' %}<button name="action" value="pitch" title="Claude drafts a pitch email (Outreach)">Pitch</button>{% endif %}
+<button name="action" value="rejected">✕</button></form></td></tr>
+{% else %}<tr><td colspan="5" class="muted">Run the niche finder: it searches your keywords with "write for us", forum, directory and profile footprints, checks each site and lets Claude keep only relevant ones.</td></tr>{% endfor %}
+</table></div>
+
+<h3 style="margin-top:20px">Grey-hat tricks</h3>
+<div class="card tbl"><table><tr><th>#</th><th>Trick</th><th>Effect</th><th>Risk</th><th>How the engine does it</th></tr>
+{% for n, name, eff, risk, how in tricks %}<tr><td>{{ n }}</td><td><b>{{ name }}</b></td><td>{{ eff }}</td><td>{{ risk }}</td><td><small>{{ how }}</small></td></tr>{% endfor %}
+</table>
+<p class="row" style="margin-top:10px"><b>Draft a pack:</b>
+{% for k, (label, ch, what) in assets.items() %}<form method="post" action="/p/{{p.id}}/launch/asset/{{k}}" class="inline"><button title="{{ what }}">{{ label }}</button></form>{% endfor %}</p>
+<small>Drafts land in Link publishing &rarr; To approve (GitHub Pages mini-sites publish by themselves after approval).</small></div>
+
+<div class="grid" style="margin-top:16px">
+<div class="card"><h3>Entity schema (trick #4)</h3><small>Paste into your site's head or Rank Math &rarr; Schema &rarr; Custom. It updates as you mark profiles done.</small>
+<textarea rows="10" readonly onclick="this.select()">&lt;script type="application/ld+json"&gt;
+{{ same_as }}
+&lt;/script&gt;</textarea></div>
+<div class="card"><h3>Badge for partners (trick #13)</h3><small>Give to sites that feature you. It is rel="nofollow" as Google asks for widget links.</small>
+<textarea rows="5" readonly onclick="this.select()">{{ widget }}</textarea></div>
+<div class="card"><h3>Learned database <small>({{ learned_total }} domains, all projects)</small></h3>
+<small>Sites proven on any project (done, live links, dofollow) are suggested to new similar projects as "Proven on other projects". Only domains and counts are shared.</small>
+<table>{% for l in learned %}<tr><td>{{ l.domain }}</td><td><small>{{ l.wins }} done · {{ l.live_links }} live · {{ l.dofollow_links }} dofollow · {{ l.projects }} proj</small></td><td><b>{{ l.score }}</b></td></tr>
+{% else %}<tr><td class="muted">Empty until projects complete sites or earn live links.</td></tr>{% endfor %}</table></div>
+</div>
+{% endblock %}

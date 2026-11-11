@@ -224,12 +224,19 @@ def _publish(s, project, payload):
         return HANDLERS["send_email"](s, project, payload)
     if item.channel == "pinterest":
         return _publish_pin(s, project, item, payload)
+    from app import launch_engine
+
     cfg = project_cfg(project)
     ok, msg = limits.allow(s, cfg, project.id, item.channel)
     if not ok:
         item.status = "scheduled"
+        if launch_engine.due_retry(item, project):  # launch autopilot: try again tomorrow by itself
+            enqueue(s, "publish_content", project.id, delay_s=24 * 3600 + 600, content_id=item.id, autopilot=True)
+            return {"deferred": msg, "retry": "tomorrow"}
         pipeline.event(s, project.id, f"{msg}. '{item.title[:50]}' stays approved; click Publish again tomorrow.", "info")
         return {"deferred": msg}
+    if item.channel == "telegraph":
+        launch_engine.ensure_telegraph_account(s, project)
     plats = HUB_PLATFORMS if item.channel == "own_blog" else (item.channel,)
     acct = s.scalar(select(PlatformAccount).where(PlatformAccount.project_id == project.id,
                     PlatformAccount.platform.in_(plats), PlatformAccount.active.is_(True)))
@@ -242,10 +249,14 @@ def _publish(s, project, payload):
     limits.record(s, project.id, item.channel, acct.id if acct else None)
     item.status, item.published_url = "published", res.url
     item.published_by = payload.get("user_id")
-    if item.channel != "own_blog":  # own blog is the hub, not a backlink
-        s.add(EarnedLink(project_id=project.id, source_url=res.url, target_url=item.target_url, kind="self_publish",
+    tier = (item.data or {}).get("tier")
+    # own blog is the hub, not a backlink; tier-2 pointers link to our articles, not to the site
+    if item.channel != "own_blog" and tier != 2 and not (item.data or {}).get("indexer"):
+        s.add(EarnedLink(project_id=project.id, source_url=res.url, target_url=item.target_url,
+                         kind="parasite" if item.content_type == "parasite_article" else "self_publish",
                          status="pending", content_item_id=item.id, credited_to=payload.get("user_id")))
     pipeline.event(s, project.id, f"{item.channel}: {res.message} {res.url}", "win", user_id=payload.get("user_id"))
+    launch_engine.after_publish(s, project, item)
     return {"ok": True, "url": res.url}
 
 
@@ -431,6 +442,85 @@ def _profile_kit(s, project, payload):
                            "profile_kit": ai.profile_kit(project.name, project.domain, project.brand_voice)}
     pipeline.event(s, project.id, "Profile kit ready (Link publishing tab).", "action")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- launch kit (app/launch_engine.py)
+@job("launch_autopilot")
+def _launch_autopilot(s, project, payload):
+    from app import launch_engine
+
+    return launch_engine.autopilot(s, project)
+
+
+@job("launch_seed")
+def _launch_seed(s, project, payload):
+    from app import launchkit
+
+    n = launchkit.seed(s, project)
+    pipeline.event(s, project.id, f"Launch Kit: {n} sites added to the checklist.", "action" if n else "info")
+    return {"added": n}
+
+
+@job("launch_keywords")
+def _launch_keywords(s, project, payload):
+    from app import launch_engine
+
+    r = launch_engine.research_keywords(s, project)
+    pipeline.event(s, project.id, f"Parasite keywords: {r.get('added', 0)} new ({r.get('serp_checked', 0)} SERP-checked).", "info")
+    return r
+
+
+@job("launch_write")
+def _launch_write(s, project, payload):
+    from app import launch_engine
+
+    r = launch_engine.write_articles(s, project, payload.get("n"), payload.get("opportunity_id"))
+    pipeline.event(s, project.id, f"Parasite articles: {r.get('written', 0)} written, {r.get('auto_publishing', 0)} publishing "
+                   "automatically.", "action" if r.get("written") else "info")
+    return r
+
+
+@job("launch_niche")
+def _launch_niche(s, project, payload):
+    from app import launch_engine
+
+    r = launch_engine.niche_finder(s, project)
+    pipeline.event(s, project.id, r.get("error") or f"Niche finder: {r['added']} relevant sites from {r['sites_checked']} checked "
+                   "(Launch Kit > Niche sites).", "warn" if r.get("error") else "action")
+    return r
+
+
+@job("launch_indexer")
+def _launch_indexer(s, project, payload):
+    from app import launch_engine
+
+    return launch_engine.update_indexer(s, project)
+
+
+@job("launch_index_check")
+def _launch_index_check(s, project, payload):
+    from app import launch_engine
+
+    r = launch_engine.index_check(s, project)
+    pipeline.event(s, project.id, r.get("error") or f"Index check: {r['indexed']}/{r['checked']} indexed.", "info")
+    return r
+
+
+@job("launch_syndicate")
+def _launch_syndicate(s, project, payload):
+    from app import launch_engine
+
+    return launch_engine.syndicate(s, project)
+
+
+@job("launch_asset")
+def _launch_asset(s, project, payload):
+    from app import launch_engine
+
+    r = launch_engine.draft_asset(s, project, payload.get("asset", ""))
+    pipeline.event(s, project.id, f"Launch Kit: {r.get('created', 0)} draft(s) for {payload.get('asset')} ready in Link publishing.",
+                   "action")
+    return r
 
 
 # ---------------------------------------------------------------- loop

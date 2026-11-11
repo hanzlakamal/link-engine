@@ -15,11 +15,18 @@
 <input name="handle" placeholder="Handle / display name"></p>
 <p><input name="site_url" placeholder="Site / API URL (WordPress: https://yoursite.com · Shopify: https://store.myshopify.com)" style="width:100%"></p>
 <p><input name="public_url" placeholder="Public store URL (Shopify only, e.g. https://www.brand.com)" style="width:100%"></p>
-<p><input name="host" placeholder="IMAP host (imap_inbox only, e.g. imap.gmail.com)" style="width:100%"></p>
+<p><input name="host" placeholder="IMAP host (imap_inbox) · Blog ID (blogger) · Publication ID (hashnode) · Repo (github_pages)" style="width:100%"></p>
 <p class="row"><input name="username" placeholder="Username / email" autocomplete="off"><input type="password" name="password" placeholder="App password / Admin API token" autocomplete="new-password"></p>
 <button class="primary">Save</button></form>
 <p><small><b>wordpress_hub:</b> WP Admin &rarr; Users &rarr; Profile &rarr; Application Passwords &rarr; add "Buzz Scouts Engine" &rarr; paste WP username + that password.<br>
 <b>shopify_hub:</b> Shopify Admin &rarr; Settings &rarr; Apps &rarr; Develop apps &rarr; Create app &rarr; Admin API scopes: <code>write_content, read_content</code> &rarr; Install &rarr; paste the Admin API access token as password (username can be empty).<br>
 <b>social_engine:</b> URL of the brand's traffic-engine service (e.g. https://tshirtcrisis-social.up.railway.app) + its ENGINE_API_TOKEN as password.<br>
 <b>imap_inbox:</b> the outreach mailbox where replies and journalist-request emails arrive (use an app password).</small></p>
+<p><small><b>Launch Kit auto-publishers</b> (password field = the token):<br>
+<b>telegraph</b>: nothing to do, created automatically. <b>writeas</b>: optional token, empty = anonymous posts.<br>
+<b>blogger</b>: Site/API URL empty, IMAP host field = Blog ID, username = <code>client_id:client_secret</code> of a Google OAuth app, password = refresh token (Blogger scope).<br>
+<b>wordpress_com</b>: Site URL = yoursite.wordpress.com, password = OAuth2 access token. <b>tumblr</b>: handle = blog name, password = OAuth2 token.<br>
+<b>hashnode</b>: IMAP host field = publication ID, password = personal access token. <b>devto</b>: password = API key (Settings &rarr; Extensions).<br>
+<b>mastodon</b>: Site URL = instance (https://mastodon.social), password = access token. <b>bluesky</b>: handle = you.bsky.social, password = app password.<br>
+<b>github_pages</b>: handle = GitHub user, IMAP host field = repo (empty = user.github.io), password = fine-grained token with Contents: write.</small></p>
 </div>{% endblock %}
