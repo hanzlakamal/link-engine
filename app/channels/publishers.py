@@ -5,7 +5,7 @@ Credentials live in PlatformAccount.secret (encrypted JSON) and .data, entered o
   writeas       optional token (password field); empty = anonymous post
   blogger       data.host = blog ID; secret: username = OAuth client_id:client_secret, password = refresh token
   wordpress_com data.site_url = yoursite.wordpress.com; password = OAuth2 access token
-  tumblr        handle = blog name; password = OAuth2 access token
+  tumblr        handle = blog name; username = consumer_key:consumer_secret, password = token:token_secret (OAuth1)
   hashnode      data.host = publication ID; password = personal access token
   devto         password = API key
   mastodon      data.site_url = instance (https://mastodon.social); password = access token
@@ -172,19 +172,49 @@ class Tumblr(ApiChannel):
         return "https://www.tumblr.com/new/text"
 
     def _publish(self, item, account, cfg):
-        blog = (account.handle or "").strip()
-        token = _creds(account).get("password", "")
-        if not (blog and token):
-            return PublishResult(False, message="Tumblr needs the blog name (handle) and an OAuth2 token (password).")
+        """OAuth 1.0a (tokens never expire): username = consumer_key:consumer_secret, password = token:token_secret.
+        A plain password without ':' is sent as an OAuth2 bearer token (those expire after ~40 minutes)."""
+        blog = (account.handle or "").strip().removeprefix("https://www.tumblr.com/blog/").strip("/")
+        cr = _creds(account)
+        user, pw = cr.get("username", ""), cr.get("password", "")
+        if not (blog and pw):
+            return PublishResult(False, message="Tumblr needs the blog name (handle) and tokens (see Accounts help).")
         blog = blog if "." in blog else f"{blog}.tumblr.com"
+        url = f"https://api.tumblr.com/v2/blog/{blog}/post"
+        body = {"type": "text", "title": item.title, "body": item.body, "format": "html",
+                "tags": ",".join((item.data or {}).get("tags", [])[:5])}
+        if ":" in user and ":" in pw:
+            ck, cs = user.split(":", 1)
+            tk, ts = pw.split(":", 1)
+            headers = {"Authorization": _oauth1_header("POST", url, body, ck.strip(), cs.strip(), tk.strip(), ts.strip())}
+        else:
+            headers = {"Authorization": f"Bearer {pw}"}
         with _http() as c:
-            r = c.post(f"https://api.tumblr.com/v2/blog/{blog}/post", headers={"Authorization": f"Bearer {token}"},
-                       data={"type": "text", "title": item.title, "body": item.body, "format": "html",
-                             "tags": ",".join((item.data or {}).get("tags", [])[:5])})
+            r = c.post(url, headers=headers, data=body)
         if r.status_code >= 300:
             return _fail("Tumblr", r)
-        pid = r.json()["response"]["id_string"] if "id_string" in r.json()["response"] else r.json()["response"]["id"]
+        resp = r.json()["response"]
+        pid = resp.get("id_string") or resp.get("id")
         return PublishResult(True, url=f"https://{blog}/post/{pid}", message="Tumblr post published")
+
+
+def _oauth1_header(method: str, url: str, params: dict, ck: str, cs: str, tk: str, ts: str) -> str:
+    import hashlib
+    import hmac
+    import secrets
+    import time
+    from urllib.parse import quote
+
+    def enc(x) -> str:
+        return quote(str(x), safe="~-._")
+
+    oauth = {"oauth_consumer_key": ck, "oauth_nonce": secrets.token_hex(16), "oauth_signature_method": "HMAC-SHA1",
+             "oauth_timestamp": str(int(time.time())), "oauth_token": tk, "oauth_version": "1.0"}
+    allp = sorted((enc(k), enc(v)) for k, v in {**params, **oauth}.items())
+    base = "&".join([method, enc(url), enc("&".join(f"{k}={v}" for k, v in allp))])
+    sig = base64.b64encode(hmac.new(f"{enc(cs)}&{enc(ts)}".encode(), base.encode(), hashlib.sha1).digest()).decode()
+    oauth["oauth_signature"] = sig
+    return "OAuth " + ", ".join(f'{enc(k)}="{enc(v)}"' for k, v in oauth.items())
 
 
 @channels.register("hashnode")

@@ -284,3 +284,19 @@ def test_publish_fail_html_error_shows_title():
     r = httpx.Response(502, text="<!DOCTYPE HTML><html><head><title>A Troubling Question &mdash; Write.as</title>")
     msg = _fail("Write.as", r).message
     assert msg.startswith("Write.as 502: A Troubling Question") and "<" not in msg
+
+
+def test_oauth1_signature_matches_rfc5849_example():
+    from unittest import mock
+
+    from app.channels.publishers import _oauth1_header
+
+    # Twitter's documented OAuth1 signing example
+    with mock.patch("secrets.token_hex", return_value="kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg"), \
+         mock.patch("time.time", return_value=1318622958):
+        h = _oauth1_header("POST", "https://api.twitter.com/1.1/statuses/update.json",
+                           {"status": "Hello Ladies + Gentlemen, a signed OAuth request!", "include_entities": "true"},
+                           "xvz1evFS4wEEPTGEFPHBog", "kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw",
+                           "370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb",
+                           "LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE")
+    assert 'oauth_signature="hCtSmYh%2BiHYCEqBWrE7C7hYmtUk%3D"' in h
