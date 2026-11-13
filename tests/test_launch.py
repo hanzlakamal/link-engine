@@ -274,3 +274,13 @@ def test_publisher_payloads(monkeypatch):
     r = publishers.DevTo().publish(item, dev, {})
     body = json.loads(seen[-1][2])
     assert r.ok and body["article"]["canonical_url"] == "https://t.com/p" and "## A" in body["article"]["body_markdown"]
+
+
+def test_publish_fail_html_error_shows_title():
+    import httpx
+
+    from app.channels.publishers import _fail
+
+    r = httpx.Response(502, text="<!DOCTYPE HTML><html><head><title>A Troubling Question &mdash; Write.as</title>")
+    msg = _fail("Write.as", r).message
+    assert msg.startswith("Write.as 502: A Troubling Question") and "<" not in msg

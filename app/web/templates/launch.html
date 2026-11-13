@@ -47,8 +47,10 @@ Add DataForSEO (or a Brave Search key) in Global settings.</small></p>{% endif %
 {% if a.data.keyword %}<br><small>{{ a.data.keyword }} · {{ a.data.anchor_type }} anchor</small>{% endif %}</td>
 <td><span class="chip {{ 'win' if a.status=='published' else ('warn' if a.status=='failed' else '') }}">{{ a.status }}</span>
 {% if a.data.indexed is defined %}<br><small>{{ 'indexed' if a.data.indexed else 'not indexed yet' }}</small>{% endif %}
-{% if a.data.error %}<br><small class="muted">{{ a.data.error[:80] }}</small>{% endif %}</td></tr>
+{% if a.data.error %}<br><small class="muted">{{ a.data.error[:120] }}</small>{% endif %}
+{% if a.status == 'failed' %}<br><form method="post" action="/p/{{p.id}}/content/{{a.id}}/publish" class="inline"><button>Retry</button></form>{% endif %}</td></tr>
 {% else %}<tr><td colspan="3" class="muted">Nothing written yet.</td></tr>{% endfor %}</table>
+{% if arts|selectattr('status', 'equalto', 'failed')|list %}<form method="post" action="/p/{{p.id}}/content/retry-failed" style="margin-top:8px"><button>Retry all failed</button></form>{% endif %}
 <p><small>Edit, approve or post the assisted ones in <a href="/p/{{p.id}}/queue">Link publishing</a>.</small></p></div>
 </div>
 

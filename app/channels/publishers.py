@@ -54,7 +54,13 @@ def _http() -> httpx.Client:
 
 
 def _fail(name: str, r: httpx.Response) -> PublishResult:
-    return PublishResult(False, message=f"{name} {r.status_code}: {r.text[:200]}")
+    text = r.text or ""
+    if "<html" in text[:500].lower():  # error/challenge page: keep its title, not the markup
+        m = re.search(r"<title[^>]*>(.*?)</title>", text, re.S | re.I)
+        title = re.sub(r"&[a-z#0-9]+;", " ", m.group(1)).strip() if m else "HTML error page"
+        hint = " (site may be down or blocking automated posts; Retry later)" if r.status_code >= 500 else ""
+        return PublishResult(False, message=f"{name} {r.status_code}: {' '.join(title.split())}{hint}")
+    return PublishResult(False, message=f"{name} {r.status_code}: {text[:200]}")
 
 
 class ApiChannel(Channel):

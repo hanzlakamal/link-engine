@@ -600,9 +600,29 @@ def republish(pid: int, cid: int, request: Request, db: Session = Depends(get_db
     c = db.get(ContentItem, cid)
     if c and c.project_id == pid and c.status in ("approved", "scheduled", "failed"):
         c.status = "approved"
+        c.data = {k: v for k, v in (c.data or {}).items() if k != "error"}
         enqueue(db, "publish_content", pid, content_id=cid, user_id=me(request).id)
         db.commit()
-    return _back(pid, "queue")
+    return _back(pid, "launch" if "/launch" in (request.headers.get("referer") or "") else "queue")
+
+
+@app.post("/p/{pid}/content/retry-failed")
+def retry_failed(pid: int, request: Request, db: Session = Depends(get_db)):
+    """Re-queue every failed launch-kit post (daily limits still apply in the worker)."""
+    u = me(request)
+    items = db.scalars(select(ContentItem).where(
+        ContentItem.project_id == pid, ContentItem.status == "failed",
+        ContentItem.content_type.in_(("parasite_article", "syndication", "tier2_pointer")))).all()
+    for c in items:
+        if get_channel(c.channel).mode != "api":
+            continue
+        c.status = "approved"
+        c.data = {k: v for k, v in (c.data or {}).items() if k != "error"}
+        enqueue(db, "publish_content", pid, content_id=c.id, user_id=u.id)
+    if items:
+        audit(db, u.id, f"Retried {len(items)} failed launch post(s)", pid)
+    db.commit()
+    return _back(pid, "launch")
 
 
 from app.channels.publishers import API_CHANNELS  # noqa: E402
