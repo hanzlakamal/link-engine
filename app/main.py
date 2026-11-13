@@ -733,7 +733,51 @@ def accounts_page(pid: int, request: Request, db: Session = Depends(get_db)):
     p = _project(db, pid)
     accts = db.scalars(select(PlatformAccount).where(PlatformAccount.project_id == pid)).all()
     return templates.TemplateResponse(request, "accounts.html", {
-        "p": p, "accts": accts, "platforms": PLATFORM_CHOICES, "tab": "accounts"})
+        "p": p, "accts": accts, "platforms": PLATFORM_CHOICES, "tab": "accounts",
+        "shareable": {a.id for a in accts if is_link_profile(a, p)},
+        "importable": importable_profiles(db, me(request), p)})
+
+
+# Link-building profiles (neutral web 2.0 / blog accounts, e.g. a "Craxout" Blogger) can serve every project.
+# Never shared: the brand's own hub/store, inbox, social engine, telegraph (auto per project) and social identities.
+LINK_PROFILE_PLATFORMS = {"blogger", "tumblr", "wordpress_com", "medium", "substack", "writeas", "hashnode", "devto",
+                          "github_pages", "docs", "pr"}
+
+
+def _brand_stems(p: Project) -> set[str]:
+    name = (project_cfg(p)["business"].get("business_name") or p.name or "")
+    stems = {re.sub(r"[^a-z0-9]", "", name.lower()), (domain_of(p.domain or "") or "").split(".")[0].replace("-", "")}
+    return {x for x in stems if len(x) >= 4}
+
+
+def is_link_profile(a: PlatformAccount, p: Project) -> bool:
+    """Shareable with other projects: a link-building platform, not a founder/brand identity, not marked private."""
+    d = a.data or {}
+    if a.platform not in LINK_PROFILE_PLATFORMS or a.persona == "founder" or d.get("private"):
+        return False
+    if a.persona == "network" or d.get("imported_from"):
+        return True
+    blob = re.sub(r"[^a-z0-9]", "", f"{a.handle} {d.get('site_url', '')} {d.get('host', '')}".lower())
+    return not any(s in blob for s in _brand_stems(p))  # brand-named profile = the brand's identity
+
+
+def _acct_key(a: PlatformAccount) -> tuple:
+    d = a.data or {}
+    return a.platform, (a.handle or "").lower(), (d.get("site_url") or "").lower(), (d.get("host") or "").lower()
+
+
+def importable_profiles(db: Session, user: User, p: Project) -> list[dict]:
+    have = {_acct_key(a) for a in db.scalars(select(PlatformAccount).where(PlatformAccount.project_id == p.id))}
+    out = []
+    for src in db.scalars(select(Project).where(Project.id != p.id).order_by(Project.name)):
+        if not authz.can_see_project(user, src.id):
+            continue
+        rows = [a for a in db.scalars(select(PlatformAccount).where(PlatformAccount.project_id == src.id,
+                                                                    PlatformAccount.active.is_(True)))
+                if is_link_profile(a, src) and _acct_key(a) not in have]
+        if rows:
+            out.append({"project": src, "accts": rows})
+    return out
 
 
 @app.post("/p/{pid}/accounts")
@@ -763,6 +807,33 @@ def add_account(pid: int, request: Request, platform: str = Form(...), persona: 
     return _back(pid, "accounts")
 
 
+@app.post("/p/{pid}/accounts/import")
+async def import_accounts(pid: int, request: Request, db: Session = Depends(get_db)):
+    """Copy link-building profiles from other projects (same login, no re-entering credentials)."""
+    p = _project(db, pid)
+    u = me(request)
+    ids = {int(x) for x in (await request.form()).getlist("aid") if str(x).isdigit()}
+    have = {_acct_key(a) for a in db.scalars(select(PlatformAccount).where(PlatformAccount.project_id == pid))}
+    n = 0
+    for aid in ids:
+        a = db.get(PlatformAccount, aid)
+        if not a or a.project_id == pid or not authz.can_see_project(u, a.project_id):
+            continue
+        src = db.get(Project, a.project_id)
+        if not is_link_profile(a, src) or _acct_key(a) in have:
+            continue
+        data = {k: v for k, v in (a.data or {}).items() if k not in ("last_test", "private")}
+        data["imported_from"] = {"project_id": src.id, "project": src.name, "account_id": a.id}
+        db.add(PlatformAccount(project_id=pid, platform=a.platform, persona="network", handle=a.handle,
+                               secret=a.secret, data=data))
+        have.add(_acct_key(a))
+        n += 1
+    if n:
+        audit(db, u.id, f"Imported {n} link-building profile(s) from other projects", pid)
+    db.commit()
+    return _back(pid, "accounts")
+
+
 @app.post("/p/{pid}/accounts/{aid}/{action}")
 def account_action(pid: int, aid: int, action: str, request: Request, db: Session = Depends(get_db)):
     a = db.get(PlatformAccount, aid)
@@ -772,6 +843,8 @@ def account_action(pid: int, aid: int, action: str, request: Request, db: Sessio
         a.data = {**a.data, "last_test": test_hub(a)}
     elif action == "toggle":
         a.active = not a.active
+    elif action == "private":  # brand-only vs shareable link profile
+        a.data = {**(a.data or {}), "private": not (a.data or {}).get("private")}
     elif action == "delete":
         audit(db, me(request).id, f"Deleted account {a.platform} {a.handle}", pid)
         db.delete(a)

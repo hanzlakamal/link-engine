@@ -2,16 +2,26 @@
 <div class="card tbl" style="margin-bottom:16px"><table>
 <tr><th>Platform</th><th>Persona</th><th>Handle / site</th><th>Status</th><th></th></tr>
 {% for a in accts %}<tr><td><b>{{ a.platform }}</b></td><td>{{ a.persona }}</td>
-<td>{{ a.handle }} <small>{{ a.data.site_url }}</small></td>
+<td>{{ a.handle }} <small>{{ a.data.site_url }}</small>
+{% if a.data.imported_from %}<br><small class="muted">imported from {{ a.data.imported_from.project }}</small>{% endif %}
+{% if a.id in shareable %}<br><span class="chip win">shareable link profile</span>{% elif a.data.private %}<br><span class="chip">brand only</span>{% endif %}</td>
 <td><span class="chip {{ 'win' if a.active else '' }}">{{ 'active' if a.active else 'paused' }}</span> <small>{{ a.data.last_test or '' }}</small></td>
 <td style="white-space:nowrap">{% if a.platform in ('wordpress_hub','shopify_hub') %}<form method="post" action="/p/{{p.id}}/accounts/{{a.id}}/test" class="inline"><button>Test</button></form>{% endif %}
+{% if a.id in shareable or a.data.private %}<form method="post" action="/p/{{p.id}}/accounts/{{a.id}}/private" class="inline"><button title="Brand-only accounts are never offered to other projects">{{ 'Allow sharing' if a.data.private else 'Keep brand-only' }}</button></form>{% endif %}
 <form method="post" action="/p/{{p.id}}/accounts/{{a.id}}/toggle" class="inline"><button>{{ 'Pause' if a.active else 'Activate' }}</button></form>
 <form method="post" action="/p/{{p.id}}/accounts/{{a.id}}/delete" class="inline"><button>Delete</button></form></td></tr>
 {% else %}<tr><td colspan="5" class="muted">No accounts connected yet.</td></tr>{% endfor %}</table></div>
+<div class="card" style="margin-bottom:16px"><h3>Import link-building profiles from other projects</h3>
+<p><small>Neutral profiles (e.g. a Blogger, Tumblr or WordPress.com blog not named after a brand) work for every project, so you only enter the login once. A project's own site, inbox, social engine, founder profiles and brand-named profiles are never offered. Click <b>Keep brand-only</b> on an account to hide it from other projects.</small></p>
+{% if importable %}<form method="post" action="/p/{{p.id}}/accounts/import">
+{% for g in importable %}<p><b>{{ g.project.name }}</b><br>
+{% for a in g.accts %}<label style="display:block"><input type="checkbox" name="aid" value="{{ a.id }}" checked> {{ a.platform }} &middot; {{ a.handle or a.data.site_url or a.data.host or '(no handle)' }}</label>{% endfor %}</p>{% endfor %}
+<button class="primary">Import selected</button></form>
+{% else %}<p class="muted">Nothing to import: other projects have no shareable link profiles this project doesn't already have.</p>{% endif %}</div>
 <div class="card"><h3>Connect an account <small>(secrets are encrypted, never shown again)</small></h3>
 <form method="post" action="/p/{{p.id}}/accounts">
 <p class="row"><select name="platform">{% for x in platforms %}<option>{{ x }}</option>{% endfor %}</select>
-<select name="persona"><option>brand</option><option>founder</option></select>
+<select name="persona"><option value="brand">brand</option><option value="founder">founder</option><option value="network">link profile (shareable)</option></select>
 <input name="handle" placeholder="Handle / display name"></p>
 <p><input name="site_url" placeholder="Site / API URL (WordPress: https://yoursite.com · Shopify: https://store.myshopify.com)" style="width:100%"></p>
 <p><input name="public_url" placeholder="Public store URL (Shopify only, e.g. https://www.brand.com)" style="width:100%"></p>

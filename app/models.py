@@ -187,7 +187,7 @@ class PlatformAccount(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     platform: Mapped[str] = mapped_column(String(50))
-    persona: Mapped[str] = mapped_column(String(30), default="brand")  # brand | founder
+    persona: Mapped[str] = mapped_column(String(30), default="brand")  # brand | founder | network (shareable link profile)
     handle: Mapped[str] = mapped_column(String(200), default="")
     secret: Mapped[str] = mapped_column(Text, default="")  # encrypted JSON (tokens / passwords)
     active: Mapped[bool] = mapped_column(Boolean, default=True)

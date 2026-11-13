@@ -884,3 +884,37 @@ def test_banned_here_blocks_subreddit(monkeypatch):
         pushed = [p for m, path, p in sent if path == "/api/config"][0]
         assert pushed["blockedSubreddits"] == ["GiftIdeas"]
         assert ("POST", "/api/items/reddit_x/skip", {"by": "admin@test.com"}) in sent
+
+
+def test_import_link_profiles_between_projects():
+    from fastapi.testclient import TestClient
+
+    from app.db import SessionLocal
+    from app.main import app
+    from app.models import PlatformAccount, Project
+
+    with SessionLocal() as s:
+        a = Project(name="T-Shirt Crisis", domain="tshirtcrisis.com")
+        b = Project(name="The Pest Help", domain="thepesthelp.com")
+        s.add_all([a, b]); s.flush()
+        s.add_all([
+            PlatformAccount(project_id=a.id, platform="blogger", handle="Craxout", secret="enc", data={"host": "123"}),
+            PlatformAccount(project_id=a.id, platform="tumblr", handle="tshirtcrisis"),  # brand-named
+            PlatformAccount(project_id=a.id, platform="wordpress_hub", handle="store"),  # own site
+            PlatformAccount(project_id=a.id, platform="medium", persona="founder", handle="Jane"),
+            PlatformAccount(project_id=a.id, platform="devto", handle="neutral", data={"private": True}),
+        ])
+        s.commit()
+        aid, bid = a.id, b.id
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "admin@test.com", "password": "pw"})
+        page = c.get(f"/p/{bid}/accounts").text
+        assert "Craxout" in page and "tshirtcrisis" not in page.split("Import link-building")[1].split("Connect an")[0]
+        ids = [x.id for x in SessionLocal().query(PlatformAccount).filter_by(project_id=aid)]
+        c.post(f"/p/{bid}/accounts/import", data={"aid": [str(i) for i in ids]})
+        c.post(f"/p/{bid}/accounts/import", data={"aid": [str(i) for i in ids]})  # idempotent
+    with SessionLocal() as s:
+        got = s.query(PlatformAccount).filter_by(project_id=bid).all()
+        assert [(g.platform, g.handle, g.persona, g.secret, g.data["host"]) for g in got] == [
+            ("blogger", "Craxout", "network", "enc", "123")]
+        assert got[0].data["imported_from"]["project_id"] == aid
